@@ -1,5 +1,5 @@
 (() => {
-  const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "🙏", "👍", "🔥", "🎉"];
+  const QUICK_REACTIONS = ["😎", "😂", "😮", "😢", "🙏", "👍", "🔥", "🗿"];
 
   const joinScreen = document.getElementById("join-screen");
   const chatScreen = document.getElementById("chat-screen");
