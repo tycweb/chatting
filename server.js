@@ -7,12 +7,14 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" },
+  maxHttpBufferSize: 6 * 1024 * 1024, // allow compressed photo payloads through
 });
 
 const PORT = process.env.PORT || 3000;
 const MAX_HISTORY = 200;
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_NAME_LENGTH = 24;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded ceiling for a single photo
 
 // In-memory state (resets when the server restarts)
 const history = [];
@@ -42,16 +44,28 @@ io.on("connection", (socket) => {
     broadcastPresence();
   });
 
-  socket.on("message", (text) => {
+  socket.on("message", (payload) => {
     const name = socket.data.name;
     if (!name) return; // must join first
-    const clean = sanitize(text).slice(0, MAX_MESSAGE_LENGTH);
-    if (!clean) return;
+
+    const rawText = typeof payload === "string" ? payload : payload && payload.text;
+    const rawImage = payload && typeof payload === "object" ? payload.image : null;
+
+    const clean = sanitize(rawText).slice(0, MAX_MESSAGE_LENGTH);
+
+    let image = null;
+    if (typeof rawImage === "string" && rawImage.startsWith("data:image/")) {
+      if (rawImage.length > MAX_IMAGE_BYTES) return; // reject oversized payloads
+      image = rawImage;
+    }
+
+    if (!clean && !image) return; // nothing to send
 
     const msg = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name,
       text: clean,
+      image,
       time: Date.now(),
       reactions: {}, // emoji -> [names]
     };
@@ -100,3 +114,4 @@ server.listen(PORT, () => {
   console.log(`Chat server running: http://localhost:${PORT}`);
   console.log(`On your phone's Wi-Fi network, friends can use: http://<your-local-ip>:${PORT}`);
 });
+
