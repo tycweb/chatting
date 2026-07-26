@@ -32,6 +32,18 @@ function broadcastPresence() {
   io.emit("presence", Array.from(onlineUsers.values()));
 }
 
+function buildReplySnapshot(rawReplyTo) {
+  if (!rawReplyTo || typeof rawReplyTo !== "object") return null;
+  const original = history.find((m) => m.id === rawReplyTo.id);
+  if (!original) return null; // ignore replies pointing at messages we don't have
+  return {
+    id: original.id,
+    name: original.name,
+    text: original.image ? "" : original.text.slice(0, 120),
+    image: !!original.image,
+  };
+}
+
 io.on("connection", (socket) => {
   socket.on("join", (rawName, ack) => {
     const name = sanitize(rawName).slice(0, MAX_NAME_LENGTH) || `Guest${Math.floor(Math.random() * 1000)}`;
@@ -50,6 +62,7 @@ io.on("connection", (socket) => {
 
     const rawText = typeof payload === "string" ? payload : payload && payload.text;
     const rawImage = payload && typeof payload === "object" ? payload.image : null;
+    const rawReplyTo = payload && typeof payload === "object" ? payload.replyTo : null;
 
     const clean = sanitize(rawText).slice(0, MAX_MESSAGE_LENGTH);
 
@@ -68,12 +81,50 @@ io.on("connection", (socket) => {
       image,
       time: Date.now(),
       reactions: {}, // emoji -> [names]
+      replyTo: buildReplySnapshot(rawReplyTo),
+      edited: false,
+      deleted: false,
     };
 
     history.push(msg);
     if (history.length > MAX_HISTORY) history.shift();
 
     io.emit("message", msg);
+  });
+
+  socket.on("edit", ({ id, text } = {}) => {
+    const name = socket.data.name;
+    if (!name || !id) return;
+
+    const msg = history.find((m) => m.id === id);
+    if (!msg) return;
+    if (msg.name !== name) return; // can only edit your own messages
+    if (msg.image) return; // keep it simple: no editing photo messages
+    if (msg.deleted) return;
+
+    const clean = sanitize(text).slice(0, MAX_MESSAGE_LENGTH);
+    if (!clean) return;
+
+    msg.text = clean;
+    msg.edited = true;
+
+    io.emit("edited", { id, text: msg.text, edited: true });
+  });
+
+  socket.on("delete", ({ id } = {}) => {
+    const name = socket.data.name;
+    if (!name || !id) return;
+
+    const msg = history.find((m) => m.id === id);
+    if (!msg) return;
+    if (msg.name !== name) return; // can only delete your own messages
+
+    msg.deleted = true;
+    msg.text = "";
+    msg.image = null;
+    msg.reactions = {};
+
+    io.emit("deleted", { id });
   });
 
   socket.on("typing", (isTyping) => {
@@ -86,7 +137,7 @@ io.on("connection", (socket) => {
     const name = socket.data.name;
     if (!name || !id || !emoji) return;
     const msg = history.find((m) => m.id === id);
-    if (!msg) return;
+    if (!msg || msg.deleted) return;
 
     if (!msg.reactions[emoji]) msg.reactions[emoji] = [];
     const idx = msg.reactions[emoji].indexOf(name);
@@ -114,4 +165,3 @@ server.listen(PORT, () => {
   console.log(`Chat server running: http://localhost:${PORT}`);
   console.log(`On your phone's Wi-Fi network, friends can use: http://<your-local-ip>:${PORT}`);
 });
-
