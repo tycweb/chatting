@@ -2,6 +2,7 @@ const express = require("express");
 const http = require("http");
 const path = require("path");
 const { Server } = require("socket.io");
+const webpush = require("web-push");
 
 const app = express();
 const server = http.createServer(app);
@@ -20,7 +21,68 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded ceiling for a single ph
 const history = [];
 const onlineUsers = new Map(); // socket.id -> name
 
+// --- Push notifications setup ---
+// Generate once with: npx web-push generate-vapid-keys
+// Set these as environment variables in production (Render dashboard -> Environment)
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "YOUR_VAPID_PUBLIC_KEY";
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "YOUR_VAPID_PRIVATE_KEY";
+
+webpush.setVapidDetails(
+  "mailto:you@example.com",
+  VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY
+);
+
+// name -> array of push subscriptions (in-memory; resets on restart, same as history)
+const pushSubscriptions = new Map();
+
+app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
+
+app.get("/api/vapid-public-key", (req, res) => {
+  res.json({ key: VAPID_PUBLIC_KEY });
+});
+
+app.post("/api/subscribe", (req, res) => {
+  const { name, subscription } = req.body || {};
+  if (!name || !subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: "Missing name or subscription" });
+  }
+  const list = pushSubscriptions.get(name) || [];
+  const exists = list.some((s) => s.endpoint === subscription.endpoint);
+  if (!exists) list.push(subscription);
+  pushSubscriptions.set(name, list);
+  res.status(201).json({});
+});
+
+// Notify everyone except the sender that a new message arrived.
+async function notifyNewMessage(msg) {
+  const body = msg.image ? "📷 Sent a photo" : msg.text;
+  const payload = JSON.stringify({
+    title: `${msg.name} in Tycept`,
+    body,
+    url: "/",
+  });
+
+  for (const [name, subs] of pushSubscriptions.entries()) {
+    if (name === msg.name) continue; // don't notify the sender
+    for (const sub of subs) {
+      try {
+        await webpush.sendNotification(sub, payload);
+      } catch (err) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          // subscription expired/gone — drop it
+          const remaining = (pushSubscriptions.get(name) || []).filter(
+            (s) => s.endpoint !== sub.endpoint
+          );
+          pushSubscriptions.set(name, remaining);
+        } else {
+          console.error("Push failed:", err.message);
+        }
+      }
+    }
+  }
+}
 
 function sanitize(str) {
   return String(str || "")
@@ -90,6 +152,7 @@ io.on("connection", (socket) => {
     if (history.length > MAX_HISTORY) history.shift();
 
     io.emit("message", msg);
+    notifyNewMessage(msg).catch((err) => console.error("notifyNewMessage error:", err));
   });
 
   socket.on("edit", ({ id, text } = {}) => {
