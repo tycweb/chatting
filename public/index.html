@@ -34,10 +34,17 @@
           <p id="presence-line" class="presence-line">connecting…</p>
         </div>
       </div>
-      <div id="connection-dot" class="connection-dot" title="Connection status"></div>
+      <div class="header-right">
+        <button id="sound-toggle" class="icon-btn" aria-label="Toggle sound" type="button">🔔</button>
+        <div id="connection-dot" class="connection-dot" title="Connection status"></div>
+      </div>
     </header>
 
     <main id="message-list" class="message-list" aria-live="polite"></main>
+
+    <button id="jump-pill" class="jump-pill hidden" type="button">
+      <span id="jump-count"></span> New messages ↓
+    </button>
 
     <div id="typing-indicator" class="typing-indicator hidden">
       <span></span><span></span><span></span>
