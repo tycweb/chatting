@@ -668,6 +668,7 @@ html, body {
   .msg-bubble {
     animation: none !important;
     transition: none !important;
+   }
   }
 #loading-screen {
   position: fixed;
@@ -868,5 +869,5 @@ html, body {
 .exit-btn-confirm {
   background: #ffffff;
   color: #000000;
-  }  
+  
 }
