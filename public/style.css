@@ -141,6 +141,7 @@ html, body {
   margin: 0 auto;
   border-left: 1px solid var(--line-soft);
   border-right: 1px solid var(--line-soft);
+  position: relative;
 }
 
 .chat-header {
@@ -186,6 +187,25 @@ html, body {
   flex-shrink: 0;
   transition: background 0.2s ease;
 }
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+  opacity: 0.85;
+}
+
+.icon-btn:hover { opacity: 1; }
 
 .connection-dot.online { background: var(--white); box-shadow: 0 0 0 3px rgba(255,255,255,0.12); }
 .connection-dot.offline { background: var(--gray-3); }
@@ -493,4 +513,160 @@ html, body {
   max-width: 100%;
   max-height: 100%;
   border-radius: 8px;
+}
+
+/* ---------- Bounce / press feedback ---------- */
+
+.btn-primary,
+.send-btn,
+.attach-btn,
+.icon-btn,
+.reaction-chip,
+.reaction-picker button,
+.msg-bubble,
+.jump-pill {
+  transition: transform 0.32s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.btn-primary:active,
+.send-btn:active,
+.attach-btn:active,
+.icon-btn:active,
+.reaction-chip:active,
+.reaction-picker button:active,
+.msg-bubble:active,
+.jump-pill:active {
+  transform: scale(0.88);
+  transition: transform 0.08s ease;
+}
+
+@keyframes sendPulse {
+  0% { transform: scale(1) rotate(0deg); }
+  35% { transform: scale(0.78) rotate(-18deg); }
+  70% { transform: scale(1.12) rotate(4deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+.send-btn.pulsing { animation: sendPulse 0.36s cubic-bezier(.34, 1.56, .64, 1); }
+
+@keyframes attachPulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(0.82) rotate(-8deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+.attach-btn.pulsing { animation: attachPulse 0.32s cubic-bezier(.34, 1.56, .64, 1); }
+
+/* Bouncier message entrance */
+.msg-row {
+  animation: bubbleRise 0.32s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+@keyframes bubbleRise {
+  0% { opacity: 0; transform: translateY(14px) scale(0.9); }
+  60% { opacity: 1; transform: translateY(-2px) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Reaction chips pop in fresh each render */
+.reaction-chip {
+  animation: chipPop 0.3s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+@keyframes chipPop {
+  0% { opacity: 0; transform: scale(0.4); }
+  70% { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* ---------- Double-tap heart burst ---------- */
+
+.heart-burst {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-size: 46px;
+  pointer-events: none;
+  z-index: 30;
+  animation: heartPop 0.7s cubic-bezier(.17, .89, .32, 1.4) forwards;
+}
+
+@keyframes heartPop {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
+  25% { transform: translate(-50%, -60%) scale(1.25); opacity: 1; }
+  100% { transform: translate(-50%, -130%) scale(1); opacity: 0; }
+}
+
+/* ---------- Jumbo emoji-only messages ---------- */
+
+.msg-bubble-jumbo {
+  background: transparent !important;
+  padding: 2px 4px !important;
+  font-size: 46px;
+  line-height: 1.15;
+  cursor: default;
+}
+
+.msg-row.me .msg-bubble-jumbo { color: var(--white); }
+.msg-bubble-jumbo .msg-meta { color: var(--gray-2) !important; justify-content: flex-start !important; }
+.msg-row.me .msg-bubble-jumbo .msg-meta { justify-content: flex-end !important; }
+
+/* ---------- Links inside messages ---------- */
+
+.msg-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+
+/* ---------- Jump-to-latest pill ---------- */
+
+.jump-pill {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--white);
+  color: var(--black-0);
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  animation: bubbleRise 0.28s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.jump-pill:active { transform: translateX(-50%) scale(0.9); }
+
+#jump-count {
+  background: var(--black-0);
+  color: var(--white);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 11px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-row,
+  .reaction-chip,
+  .heart-burst,
+  .jump-pill,
+  .send-btn.pulsing,
+  .attach-btn.pulsing,
+  .btn-primary,
+  .send-btn,
+  .attach-btn,
+  .icon-btn,
+  .reaction-chip,
+  .reaction-picker button,
+  .msg-bubble {
+    animation: none !important;
+    transition: none !important;
+  }
 }
