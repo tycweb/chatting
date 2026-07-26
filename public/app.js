@@ -668,5 +668,9 @@ if (savedName) {
   connect(savedName);
 } else {
   nameInput.focus();
+  // No saved name — nothing to auto-connect to, so there's nothing to
+  // wait for. Show the join screen right away instead of blocking it.
+  const loadingScreen = document.getElementById("loading-screen");
+  if (loadingScreen) loadingScreen.classList.add("hidden");
 }
 })();
