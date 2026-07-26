@@ -591,6 +591,45 @@
     if (loadingScreen) loadingScreen.classList.add("hidden");
   }
 
+  function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+  }
+
+  async function setupPush(name) {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+
+    try {
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+
+      // Ask permission on a user gesture (join button click covers this)
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") return;
+
+      const keyRes = await fetch("/api/vapid-public-key");
+      const { key } = await keyRes.json();
+
+      let subscription = await reg.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(key),
+        });
+      }
+
+      await fetch("/api/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, subscription }),
+      });
+    } catch (err) {
+      console.error("Push setup failed:", err);
+    }
+  }
+
   function connect(name) {
     socket = io({ reconnectionAttempts: Infinity });
 
@@ -607,6 +646,7 @@
         res.history.forEach(renderMessage);
         scrollToBottom();
         presenceLine.textContent = "connected";
+        setupPush(myName);
       });
     });
 
