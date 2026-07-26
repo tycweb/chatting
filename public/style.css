@@ -698,4 +698,175 @@ html, body {
 #loading-screen.hidden {
   display: none;
   }
+
+  /* ---------- Swipe-to-reply ---------- */
+
+.msg-bubble-wrap {
+  position: relative;
+  touch-action: pan-y; /* let vertical scroll pass through, we handle horizontal ourselves */
+}
+
+.swipe-reply-icon {
+  position: absolute;
+  top: 50%;
+  left: -34px;
+  transform: translateY(-50%) scale(0.6);
+  opacity: 0;
+  font-size: 18px;
+  color: #ffffff;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+}
+
+.msg-row.them .swipe-reply-icon {
+  left: auto;
+  right: -34px;
+}
+
+.msg-bubble-wrap.swipe-armed .swipe-reply-icon {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+
+/* Quoted message shown inside a bubble when it's a reply */
+.reply-quote {
+  border-left: 3px solid rgba(255, 255, 255, 0.5);
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.reply-quote-name {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.reply-quote-text {
+  font-size: 12px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.65);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* ---------- Reply preview bar above composer ---------- */
+
+.reply-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #111111;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.reply-preview.hidden {
+  display: none;
+}
+
+.reply-preview-bar {
+  width: 3px;
+  align-self: stretch;
+  background: #ffffff;
+  border-radius: 2px;
+}
+
+.reply-preview-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-preview-name {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.reply-preview-text {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reply-preview-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+/* ---------- Exit confirmation modal ---------- */
+
+.exit-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.exit-modal.hidden {
+  display: none;
+}
+
+.exit-modal-card {
+  background: #111111;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 22px;
+  width: 82%;
+  max-width: 320px;
+  text-align: center;
+}
+
+.exit-modal-title {
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.exit-modal-sub {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  margin: 0 0 18px;
+}
+
+.exit-modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.exit-btn {
+  flex: 1;
+  padding: 10px 0;
+  border-radius: 10px;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.exit-btn-cancel {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.exit-btn-confirm {
+  background: #ffffff;
+  color: #000000;
+  }  
 }
