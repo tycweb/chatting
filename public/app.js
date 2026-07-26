@@ -1,5 +1,5 @@
 (() => {
-  const QUICK_REACTIONS = ["😎", "😂", "😮", "🥶", "🙏", "👍", "🔥", "🗿"];
+  const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "🙏", "👍", "🔥", "🎉"];
 
   const joinScreen = document.getElementById("join-screen");
   const chatScreen = document.getElementById("chat-screen");
@@ -17,10 +17,18 @@
   const imageInput = document.getElementById("image-input");
   const lightbox = document.getElementById("lightbox");
   const lightboxImg = document.getElementById("lightbox-img");
+  const jumpPill = document.getElementById("jump-pill");
+  const jumpCount = document.getElementById("jump-count");
+  const soundToggle = document.getElementById("sound-toggle");
 
   const MAX_IMAGE_DIMENSION = 1280;
   const IMAGE_QUALITY = 0.72;
   const MAX_SOURCE_FILE_BYTES = 15 * 1024 * 1024; // reject absurdly large source photos early
+
+  let unreadCount = 0;
+  let soundEnabled = true;
+  let audioCtx = null;
+  let lastTap = { id: null, time: 0 };
 
   let myName = "";
   let socket = null;
@@ -64,14 +72,24 @@
     row.className = `msg-row ${isMe ? "me" : "them"}`;
     row.dataset.id = msg.id;
 
-    const bubbleInner = msg.image
-      ? `<img class="msg-image" src="${msg.image}" alt="Shared photo" data-lightbox="${msg.id}" />`
-      : escapeHtml(msg.text);
+    const jumbo = !msg.image && isJumboEmoji(msg.text);
+    let bubbleInner;
+    if (msg.image) {
+      bubbleInner = `<img class="msg-image" src="${msg.image}" alt="Shared photo" data-lightbox="${msg.id}" />`;
+    } else if (jumbo) {
+      bubbleInner = escapeHtml(msg.text);
+    } else {
+      bubbleInner = linkifyText(msg.text);
+    }
+
+    const bubbleClasses = ["msg-bubble"];
+    if (msg.image) bubbleClasses.push("msg-bubble-image");
+    if (jumbo) bubbleClasses.push("msg-bubble-jumbo");
 
     row.innerHTML = `
       ${!isMe ? `<p class="msg-name">${escapeHtml(msg.name)}</p>` : ""}
       <div class="msg-bubble-wrap">
-        <div class="msg-bubble ${msg.image ? "msg-bubble-image" : ""}" data-toggle-picker="${msg.id}">
+        <div class="${bubbleClasses.join(" ")}" data-toggle-picker="${msg.id}">
           ${bubbleInner}
           <div class="msg-meta"><span>${fmtTime(msg.time)}</span></div>
         </div>
@@ -81,13 +99,110 @@
     `;
 
     messageList.appendChild(row);
-    scrollToBottom();
   }
 
   function escapeHtml(str) {
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  function isJumboEmoji(text) {
+    if (!text) return false;
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    const stripped = trimmed.replace(/\s/g, "");
+    const codepoints = Array.from(stripped);
+    if (codepoints.length === 0 || codepoints.length > 6) return false;
+    try {
+      return /^[\p{Extended_Pictographic}\u200D\uFE0F]+$/u.test(stripped);
+    } catch (e) {
+      return false; // unsupported property escapes on very old browsers
+    }
+  }
+
+  function linkifyText(text) {
+    const urlRegex = /((https?:\/\/|www\.)[^\s<]+)/gi;
+    let result = "";
+    let lastIndex = 0;
+    let match;
+    while ((match = urlRegex.exec(text)) !== null) {
+      result += escapeHtml(text.slice(lastIndex, match.index));
+      let url = match[0];
+      let trail = "";
+      const trailMatch = url.match(/[.,!?)]+$/);
+      if (trailMatch) {
+        trail = trailMatch[0];
+        url = url.slice(0, -trail.length);
+      }
+      const href = url.startsWith("http") ? url : `https://${url}`;
+      result += `<a class="msg-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>${escapeHtml(trail)}`;
+      lastIndex = match.index + match[0].length;
+    }
+    result += escapeHtml(text.slice(lastIndex));
+    return result;
+  }
+
+  function isNearBottom() {
+    return messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 90;
+  }
+
+  function showJumpPill() {
+    jumpCount.textContent = unreadCount;
+    jumpPill.classList.remove("hidden");
+  }
+
+  function hideJumpPill() {
+    unreadCount = 0;
+    jumpPill.classList.add("hidden");
+  }
+
+  jumpPill.addEventListener("click", () => {
+    scrollToBottom();
+    hideJumpPill();
+  });
+
+  function playPop(freq) {
+    if (!soundEnabled) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.18);
+    } catch (e) {
+      // audio unsupported/blocked — fail silently
+    }
+  }
+
+  soundToggle.addEventListener("click", () => {
+    soundEnabled = !soundEnabled;
+    soundToggle.textContent = soundEnabled ? "🔔" : "🔕";
+    soundToggle.classList.add("pulsing");
+    setTimeout(() => soundToggle.classList.remove("pulsing"), 320);
+  });
+
+  function spawnHeartBurst(bubbleEl) {
+    const wrap = bubbleEl.closest(".msg-bubble-wrap");
+    if (!wrap) return;
+    const heart = document.createElement("span");
+    heart.className = "heart-burst";
+    heart.textContent = "❤️";
+    wrap.appendChild(heart);
+    setTimeout(() => heart.remove(), 700);
+  }
+
+  function quickHeartReact(id, bubbleEl) {
+    if (!socket) return;
+    closePicker();
+    spawnHeartBurst(bubbleEl);
+    if (navigator.vibrate) navigator.vibrate(12);
+    socket.emit("react", { id, emoji: "❤️" });
   }
 
   function closePicker() {
@@ -119,6 +234,19 @@
       openLightbox(img.src);
       return;
     }
+
+    const bubbleEl = e.target.closest(".msg-bubble");
+    if (bubbleEl && !e.target.closest("a")) {
+      const id = bubbleEl.closest(".msg-row")?.dataset.id;
+      const now = Date.now();
+      if (id && lastTap.id === id && now - lastTap.time < 320) {
+        lastTap = { id: null, time: 0 };
+        quickHeartReact(id, bubbleEl);
+        return;
+      }
+      lastTap = { id, time: now };
+    }
+
     const toggle = e.target.closest("[data-toggle-picker]");
     if (toggle) {
       const id = toggle.dataset.togglePicker;
@@ -190,6 +318,7 @@
         myName = res.name;
         messageList.innerHTML = "";
         res.history.forEach(renderMessage);
+        scrollToBottom();
         presenceLine.textContent = "connected";
       });
     });
@@ -201,12 +330,30 @@
     });
 
     socket.on("message", (msg) => {
+      const isMe = msg.name === myName;
+      const wasNearBottom = isNearBottom();
       renderMessage(msg);
       othersTyping.delete(msg.name);
       updateTypingUI();
+
+      if (isMe || wasNearBottom) {
+        scrollToBottom();
+        hideJumpPill();
+      } else {
+        unreadCount += 1;
+        showJumpPill();
+      }
+
+      if (!isMe) {
+        playPop(wasNearBottom ? 720 : 520);
+        if (document.hidden && navigator.vibrate) navigator.vibrate(20);
+      }
     });
 
-    socket.on("reaction", ({ id, reactions }) => updateReactionsUI(id, reactions));
+    socket.on("reaction", ({ id, reactions }) => {
+      updateReactionsUI(id, reactions);
+      if (navigator.vibrate) navigator.vibrate(8);
+    });
 
     socket.on("system", (evt) => renderSystem(evt.text));
 
@@ -235,6 +382,9 @@
     messageInput.value = "";
     autosize();
     socket.emit("typing", false);
+    sendBtn.classList.add("pulsing");
+    setTimeout(() => sendBtn.classList.remove("pulsing"), 360);
+    if (navigator.vibrate) navigator.vibrate(10);
   }
 
   function compressImage(file) {
@@ -288,7 +438,11 @@
   attachBtn.addEventListener("click", () => imageInput.click());
   imageInput.addEventListener("change", () => {
     const file = imageInput.files && imageInput.files[0];
-    if (file) sendImage(file);
+    if (file) {
+      attachBtn.classList.add("pulsing");
+      setTimeout(() => attachBtn.classList.remove("pulsing"), 320);
+      sendImage(file);
+    }
     imageInput.value = "";
   });
 
