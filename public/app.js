@@ -633,10 +633,20 @@
   function connect(name) {
     socket = io({ reconnectionAttempts: Infinity });
 
+    // Render's free tier can take 30-50s to wake up from sleep, so let
+    // the loading screen's message update instead of just sitting there
+    // looking frozen, and give it real time before giving up.
+    const loadingText = document.querySelector("#loading-screen p");
+    const wakeupTimer = setTimeout(() => {
+      if (loadingText) loadingText.textContent = "Waking up the server… this can take up to a minute the first time.";
+    }, 5000);
+
     // Safety net: never let the loading screen hang forever, even on a bad connection.
-    setTimeout(hideLoadingScreen, 8000);
+    const giveUpTimer = setTimeout(hideLoadingScreen, 60000);
 
     socket.on("connect", () => {
+      clearTimeout(wakeupTimer);
+      clearTimeout(giveUpTimer);
       hideLoadingScreen();
       connectionDot.classList.add("online");
       connectionDot.classList.remove("offline");
