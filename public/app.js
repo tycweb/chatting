@@ -312,6 +312,10 @@
     socket = io({ reconnectionAttempts: Infinity });
 
     socket.on("connect", () => {
+  const loadingScreen = document.getElementById("loading-screen");
+  if (loadingScreen) loadingScreen.classList.add("hidden");
+});
+    socket.on("connect", () => {
       connectionDot.classList.add("online");
       connectionDot.classList.remove("offline");
       socket.emit("join", name, (res) => {
