@@ -56,6 +56,16 @@
       <em id="typing-name"></em>
     </div>
 
+    <!-- Reply preview bar -->
+    <div id="reply-preview" class="reply-preview hidden">
+      <div class="reply-preview-bar"></div>
+      <div class="reply-preview-body">
+        <p class="reply-preview-name" id="reply-preview-name"></p>
+        <p class="reply-preview-text" id="reply-preview-text"></p>
+      </div>
+      <button id="reply-preview-close" class="reply-preview-close" aria-label="Cancel reply" type="button">✕</button>
+    </div>
+
     <footer class="composer">
       <button id="attach-btn" class="attach-btn" aria-label="Send a photo" type="button">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.8"/><path d="m21 15-5-5L5 21"/></svg>
@@ -71,6 +81,18 @@
   <!-- Fullscreen image viewer -->
   <div id="lightbox" class="lightbox hidden">
     <img id="lightbox-img" src="" alt="" />
+  </div>
+
+  <!-- Exit confirmation modal -->
+  <div id="exit-modal" class="exit-modal hidden">
+    <div class="exit-modal-card">
+      <p class="exit-modal-title">Leave Tycept?</p>
+      <p class="exit-modal-sub">You'll stop receiving messages until you reopen the app.</p>
+      <div class="exit-modal-actions">
+        <button id="exit-cancel-btn" class="exit-btn exit-btn-cancel" type="button">Stay</button>
+        <button id="exit-confirm-btn" class="exit-btn exit-btn-confirm" type="button">Exit</button>
+      </div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
