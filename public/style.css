@@ -871,3 +871,74 @@ html, body {
   color: #000000;
   
 }
+/* ---------- Long-press action menu ---------- */
+
+.action-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.action-menu {
+  position: fixed;
+  left: 50%;
+  bottom: 110px;
+  transform: translateX(-50%);
+  z-index: 9999;
+  background: #161616;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  overflow: hidden;
+  min-width: 200px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.action-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 13px 18px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.action-menu-item:last-child {
+  border-bottom: none;
+}
+
+.action-menu-item.danger {
+  color: #ff5c5c;
+}
+
+.action-menu-item:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------- Edit mode bar (reuses .reply-preview base styles) ---------- */
+
+.edit-preview .reply-preview-bar {
+  background: #f2c94c;
+}
+
+/* ---------- Edited tag ---------- */
+
+.edited-tag {
+  font-size: 10px;
+  opacity: 0.55;
+  margin-right: 6px;
+  font-style: italic;
+}
+
+/* ---------- Deleted message ---------- */
+
+.msg-bubble-deleted {
+  font-style: italic;
+  opacity: 0.55;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
