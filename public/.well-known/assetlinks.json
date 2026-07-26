@@ -2,7 +2,7 @@
       "relation": ["delegate_permission/common.handle_all_urls"],
       "target": {
         "namespace": "android_app",
-        "package_name": "com.tyce.chat",
-        "sha256_cert_fingerprints": ["5A:B4:9B:C1:BE:79:0D:19:EC:D1:42:F6:23:8A:DD:19:70:56:5A:20:F8:41:96:3B:56:D2:B1:13:86:7B:A9:08"]
+        "package_name": "com.chat.tyce",
+        "sha256_cert_fingerprints": ["59:EF:B4:7C:F4:F5:63:E7:AD:77:B0:4B:B6:49:33:D9:76:8F:02:F0:F5:56:03:93:14:6F:A2:50:1A:F9:2D:17"]
       }
     }]
