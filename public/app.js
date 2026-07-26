@@ -226,19 +226,31 @@
   sendBtn.addEventListener("click", send);
 
   function doJoin() {
-    const name = nameInput.value.trim();
-    if (!name) {
-      joinError.textContent = "Enter a name to continue.";
-      return;
-    }
-    joinScreen.classList.add("hidden");
-    chatScreen.classList.remove("hidden");
-    connect(name);
+  const name = nameInput.value.trim();
+  if (!name) {
+    joinError.textContent = "Enter a name to continue.";
+    return;
+  }
+
+  localStorage.setItem("chatName", name);
+
+  joinScreen.classList.add("hidden");
+  chatScreen.classList.remove("hidden");
+  connect(name);
   }
 
   joinBtn.addEventListener("click", doJoin);
   nameInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") doJoin();
   });
+  const savedName = localStorage.getItem("chatName");
+
+if (savedName) {
+  nameInput.value = savedName;
+  joinScreen.classList.add("hidden");
+  chatScreen.classList.remove("hidden");
+  connect(savedName);
+} else {
   nameInput.focus();
+}
 })();
