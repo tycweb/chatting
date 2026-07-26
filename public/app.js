@@ -27,6 +27,10 @@
   const replyPreviewText = document.getElementById("reply-preview-text");
   const replyPreviewClose = document.getElementById("reply-preview-close");
 
+  // Edit UI
+  const editPreview = document.getElementById("edit-preview");
+  const editPreviewClose = document.getElementById("edit-preview-close");
+
   // Exit modal UI
   const exitModal = document.getElementById("exit-modal");
   const exitCancelBtn = document.getElementById("exit-cancel-btn");
@@ -34,8 +38,10 @@
 
   const MAX_IMAGE_DIMENSION = 1280;
   const IMAGE_QUALITY = 0.72;
-  const MAX_SOURCE_FILE_BYTES = 15 * 1024 * 1024; // reject absurdly large source photos early
-  const SWIPE_REPLY_THRESHOLD = 56; // px of horizontal drag needed to trigger reply
+  const MAX_SOURCE_FILE_BYTES = 15 * 1024 * 1024;
+  const SWIPE_REPLY_THRESHOLD = 56;
+  const LONG_PRESS_MS = 420;
+  const LONG_PRESS_MOVE_CANCEL = 12;
 
   let unreadCount = 0;
   let soundEnabled = true;
@@ -46,10 +52,11 @@
   let socket = null;
   let openPickerId = null;
   let typingTimeout = null;
-  let othersTyping = new Map(); // name -> timeout id
+  let othersTyping = new Map();
 
-  const messagesById = new Map(); // id -> msg, so swipe-to-reply can look up content
+  const messagesById = new Map();
   let replyTarget = null; // { id, name, text, image }
+  let editingId = null;
 
   function fmtTime(ts) {
     const d = new Date(ts);
@@ -90,13 +97,19 @@
     </div>`;
   }
 
-  function renderMessage(msg) {
-    messagesById.set(msg.id, msg);
-
+  function buildRowInnerHtml(msg) {
     const isMe = msg.name === myName;
-    const row = document.createElement("div");
-    row.className = `msg-row ${isMe ? "me" : "them"}`;
-    row.dataset.id = msg.id;
+
+    if (msg.deleted) {
+      return `
+        ${!isMe ? `<p class="msg-name">${escapeHtml(msg.name)}</p>` : ""}
+        <div class="msg-bubble-wrap">
+          <div class="msg-bubble msg-bubble-deleted">
+            <span>🚫 This message was deleted</span>
+          </div>
+        </div>
+      `;
+    }
 
     const jumbo = !msg.image && isJumboEmoji(msg.text);
     let bubbleInner;
@@ -112,21 +125,37 @@
     if (msg.image) bubbleClasses.push("msg-bubble-image");
     if (jumbo) bubbleClasses.push("msg-bubble-jumbo");
 
-    row.innerHTML = `
+    const editedTag = msg.edited ? `<span class="edited-tag">edited</span>` : "";
+
+    return `
       ${!isMe ? `<p class="msg-name">${escapeHtml(msg.name)}</p>` : ""}
       <div class="msg-bubble-wrap">
         <div class="${bubbleClasses.join(" ")}" data-toggle-picker="${msg.id}">
           ${replyQuoteHtml(msg.replyTo)}
           ${bubbleInner}
-          <div class="msg-meta"><span>${fmtTime(msg.time)}</span></div>
+          <div class="msg-meta">${editedTag}<span>${fmtTime(msg.time)}</span></div>
         </div>
         <button class="reaction-trigger" data-toggle-picker="${msg.id}">🙂</button>
         <span class="swipe-reply-icon">↩</span>
       </div>
       <div data-reactions-for="${msg.id}">${reactionsHtml(msg.id, msg.reactions)}</div>
     `;
+  }
 
+  function renderMessage(msg) {
+    messagesById.set(msg.id, msg);
+    const row = document.createElement("div");
+    row.className = `msg-row ${msg.name === myName ? "me" : "them"}`;
+    row.dataset.id = msg.id;
+    row.innerHTML = buildRowInnerHtml(msg);
     messageList.appendChild(row);
+  }
+
+  function updateRowInPlace(msg) {
+    messagesById.set(msg.id, msg);
+    const row = messageList.querySelector(`.msg-row[data-id="${msg.id}"]`);
+    if (!row) return;
+    row.innerHTML = buildRowInnerHtml(msg);
   }
 
   function escapeHtml(str) {
@@ -145,7 +174,7 @@
     try {
       return /^[\p{Extended_Pictographic}\u200D\uFE0F]+$/u.test(stripped);
     } catch (e) {
-      return false; // unsupported property escapes on very old browsers
+      return false;
     }
   }
 
@@ -203,9 +232,7 @@
       osc.connect(gain).connect(audioCtx.destination);
       osc.start();
       osc.stop(audioCtx.currentTime + 0.18);
-    } catch (e) {
-      // audio unsupported/blocked — fail silently
-    }
+    } catch (e) {}
   }
 
   soundToggle.addEventListener("click", () => {
@@ -256,11 +283,12 @@
     });
   }
 
-  // ---------- Reply-to feature ----------
+  // ---------- Reply-to ----------
 
   function setReplyTarget(id) {
     const msg = messagesById.get(id);
-    if (!msg) return;
+    if (!msg || msg.deleted) return;
+    cancelEdit();
     replyTarget = {
       id: msg.id,
       name: msg.name === myName ? "You" : msg.name,
@@ -281,8 +309,113 @@
 
   replyPreviewClose.addEventListener("click", clearReplyTarget);
 
-  // Swipe-to-reply: track touch drag on each message bubble-wrap
-  let swipeState = null; // { row, wrap, startX, startY, dragging, id }
+  // ---------- Edit ----------
+
+  function startEdit(id) {
+    const msg = messagesById.get(id);
+    if (!msg || msg.deleted || msg.image || msg.name !== myName) return;
+    clearReplyTarget();
+    editingId = id;
+    messageInput.value = msg.text;
+    autosize();
+    messageInput.focus();
+    editPreview.classList.remove("hidden");
+  }
+
+  function cancelEdit() {
+    if (!editingId) return;
+    editingId = null;
+    messageInput.value = "";
+    autosize();
+    editPreview.classList.add("hidden");
+  }
+
+  editPreviewClose.addEventListener("click", cancelEdit);
+
+  // ---------- Copy ----------
+
+  function copyMessage(id) {
+    const msg = messagesById.get(id);
+    if (!msg || msg.deleted) return;
+    const text = msg.image ? "" : msg.text;
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+    if (navigator.vibrate) navigator.vibrate(12);
+    renderSystem("Copied to clipboard");
+  }
+
+  // ---------- Delete ----------
+
+  function deleteMessage(id) {
+    const msg = messagesById.get(id);
+    if (!msg || msg.name !== myName || !socket) return;
+    socket.emit("delete", { id });
+  }
+
+  // ---------- Long-press action menu ----------
+
+  function closeActionMenu() {
+    const existing = document.querySelector(".action-menu");
+    const backdrop = document.querySelector(".action-menu-backdrop");
+    if (existing) existing.remove();
+    if (backdrop) backdrop.remove();
+  }
+
+  function openActionMenu(id) {
+    const msg = messagesById.get(id);
+    if (!msg || msg.deleted) return;
+    closePicker();
+    closeActionMenu();
+
+    const isMe = msg.name === myName;
+    const items = [];
+    items.push({ label: "↩ Reply", action: () => setReplyTarget(id) });
+    if (!msg.image && msg.text) items.push({ label: "📋 Copy", action: () => copyMessage(id) });
+    if (isMe && !msg.image) items.push({ label: "✏️ Edit", action: () => startEdit(id) });
+    if (isMe) items.push({ label: "🗑 Delete", action: () => deleteMessage(id), danger: true });
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "action-menu-backdrop";
+    backdrop.addEventListener("click", closeActionMenu);
+    document.body.appendChild(backdrop);
+
+    const menu = document.createElement("div");
+    menu.className = "action-menu";
+    menu.innerHTML = items
+      .map(
+        (item, i) =>
+          `<button class="action-menu-item ${item.danger ? "danger" : ""}" data-idx="${i}">${item.label}</button>`
+      )
+      .join("");
+    document.body.appendChild(menu);
+
+    menu.querySelectorAll("button[data-idx]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const item = items[Number(btn.dataset.idx)];
+        closeActionMenu();
+        if (item) item.action();
+      });
+    });
+
+    if (navigator.vibrate) navigator.vibrate(18);
+  }
+
+  // ---------- Touch handling: swipe-to-reply + long-press menu ----------
+
+  let swipeState = null; // { row, wrap, startX, startY, dragging, triggered, id }
+  let longPressTimer = null;
+  let longPressId = null;
 
   messageList.addEventListener(
     "touchstart",
@@ -301,6 +434,14 @@
         triggered: false,
         id: row.dataset.id,
       };
+
+      longPressId = row.dataset.id;
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(() => {
+        if (swipeState && !swipeState.dragging && longPressId) {
+          openActionMenu(longPressId);
+        }
+      }, LONG_PRESS_MS);
     },
     { passive: true }
   );
@@ -313,13 +454,16 @@
       const dx = touch.clientX - swipeState.startX;
       const dy = touch.clientY - swipeState.startY;
 
-      if (!swipeState.dragging) {
-        // only start once horizontal intent is clear, so vertical scroll still works
-        if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return;
-        swipeState.dragging = true;
+      if (Math.abs(dx) > LONG_PRESS_MOVE_CANCEL || Math.abs(dy) > LONG_PRESS_MOVE_CANCEL) {
+        clearTimeout(longPressTimer);
       }
 
-      // Clamp and dampen the drag distance for a natural feel
+      if (!swipeState.dragging) {
+        if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return;
+        swipeState.dragging = true;
+        clearTimeout(longPressTimer);
+      }
+
       const clamped = Math.max(-90, Math.min(90, dx));
       swipeState.wrap.style.transform = `translateX(${clamped}px)`;
       swipeState.wrap.style.transition = "none";
@@ -337,6 +481,7 @@
   );
 
   function endSwipe() {
+    clearTimeout(longPressTimer);
     if (!swipeState) return;
     const { wrap, triggered, id, dragging } = swipeState;
     wrap.style.transition = "transform 0.18s ease";
@@ -360,7 +505,7 @@
     }
 
     const bubbleEl = e.target.closest(".msg-bubble");
-    if (bubbleEl && !e.target.closest("a")) {
+    if (bubbleEl && !bubbleEl.classList.contains("msg-bubble-deleted") && !e.target.closest("a")) {
       const id = bubbleEl.closest(".msg-row")?.dataset.id;
       const now = Date.now();
       if (id && lastTap.id === id && now - lastTap.time < 320) {
@@ -387,6 +532,15 @@
       return;
     }
     closePicker();
+  });
+
+  // Desktop/right-click fallback for the action menu (long-press is touch-only)
+  messageList.addEventListener("contextmenu", (e) => {
+    const wrap = e.target.closest(".msg-bubble-wrap");
+    if (!wrap) return;
+    e.preventDefault();
+    const row = wrap.closest(".msg-row");
+    if (row) openActionMenu(row.dataset.id);
   });
 
   function updateReactionsUI(id, reactions) {
@@ -432,14 +586,19 @@
     messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + "px";
   }
 
+  function hideLoadingScreen() {
+    const loadingScreen = document.getElementById("loading-screen");
+    if (loadingScreen) loadingScreen.classList.add("hidden");
+  }
+
   function connect(name) {
     socket = io({ reconnectionAttempts: Infinity });
 
+    // Safety net: never let the loading screen hang forever, even on a bad connection.
+    setTimeout(hideLoadingScreen, 8000);
+
     socket.on("connect", () => {
-  const loadingScreen = document.getElementById("loading-screen");
-  if (loadingScreen) loadingScreen.classList.add("hidden");
-});
-    socket.on("connect", () => {
+      hideLoadingScreen();
       connectionDot.classList.add("online");
       connectionDot.classList.remove("offline");
       socket.emit("join", name, (res) => {
@@ -478,6 +637,24 @@
       }
     });
 
+    socket.on("edited", ({ id, text, edited }) => {
+      const msg = messagesById.get(id);
+      if (!msg) return;
+      msg.text = text;
+      msg.edited = edited;
+      updateRowInPlace(msg);
+    });
+
+    socket.on("deleted", ({ id }) => {
+      const msg = messagesById.get(id);
+      if (!msg) return;
+      msg.deleted = true;
+      msg.text = "";
+      msg.image = null;
+      msg.reactions = {};
+      updateRowInPlace(msg);
+    });
+
     socket.on("reaction", ({ id, reactions }) => {
       updateReactionsUI(id, reactions);
       if (navigator.vibrate) navigator.vibrate(8);
@@ -506,9 +683,17 @@
   function send() {
     const text = messageInput.value.trim();
     if (!text || !socket) return;
+
+    if (editingId) {
+      socket.emit("edit", { id: editingId, text });
+      cancelEdit();
+      if (navigator.vibrate) navigator.vibrate(10);
+      return;
+    }
+
     const payload = { text };
     if (replyTarget) {
-      payload.replyTo = { id: replyTarget.id, name: replyTarget.name, text: replyTarget.text, image: replyTarget.image };
+      payload.replyTo = { id: replyTarget.id };
     }
     socket.emit("message", payload);
     messageInput.value = "";
@@ -549,10 +734,7 @@
 
   async function sendImage(file) {
     if (!socket || !file) return;
-    if (!file.type.startsWith("image/")) {
-      joinError.textContent = "";
-      return;
-    }
+    if (!file.type.startsWith("image/")) return;
     if (file.size > MAX_SOURCE_FILE_BYTES) {
       renderSystem("That photo is too large to send.");
       return;
@@ -562,7 +744,7 @@
       const dataUrl = await compressImage(file);
       const payload = { image: dataUrl };
       if (replyTarget) {
-        payload.replyTo = { id: replyTarget.id, name: replyTarget.name, text: replyTarget.text, image: replyTarget.image };
+        payload.replyTo = { id: replyTarget.id };
       }
       socket.emit("message", payload);
       clearReplyTarget();
@@ -586,7 +768,7 @@
 
   messageInput.addEventListener("input", () => {
     autosize();
-    if (!socket) return;
+    if (!socket || editingId) return;
     socket.emit("typing", true);
     clearTimeout(typingTimeout);
     typingTimeout = setTimeout(() => socket.emit("typing", false), 1500);
@@ -597,14 +779,14 @@
       e.preventDefault();
       send();
     }
+    if (e.key === "Escape" && editingId) {
+      cancelEdit();
+    }
   });
 
   sendBtn.addEventListener("click", send);
 
   // ---------- Exit confirmation ----------
-  // Pushes one extra history entry as a "guard". Hardware/gesture back triggers
-  // a popstate instead of immediately closing the app, so we can show a
-  // confirmation modal first.
 
   let guardActive = false;
 
@@ -634,43 +816,39 @@
 
   exitConfirmBtn.addEventListener("click", () => {
     hideExitModal();
-    // Try to close the app/tab. If that's blocked by the platform, the guard
-    // has already been consumed, so the next back press will exit normally.
     window.close();
   });
 
   armExitGuard();
 
   function doJoin() {
-  const name = nameInput.value.trim();
-  if (!name) {
-    joinError.textContent = "Enter a name to continue.";
-    return;
-  }
+    const name = nameInput.value.trim();
+    if (!name) {
+      joinError.textContent = "Enter a name to continue.";
+      return;
+    }
 
-  localStorage.setItem("chatName", name);
+    localStorage.setItem("chatName", name);
 
-  joinScreen.classList.add("hidden");
-  chatScreen.classList.remove("hidden");
-  connect(name);
+    joinScreen.classList.add("hidden");
+    chatScreen.classList.remove("hidden");
+    connect(name);
   }
 
   joinBtn.addEventListener("click", doJoin);
   nameInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") doJoin();
   });
+
   const savedName = localStorage.getItem("chatName");
 
-if (savedName) {
-  nameInput.value = savedName;
-  joinScreen.classList.add("hidden");
-  chatScreen.classList.remove("hidden");
-  connect(savedName);
-} else {
-  nameInput.focus();
-  // No saved name — nothing to auto-connect to, so there's nothing to
-  // wait for. Show the join screen right away instead of blocking it.
-  const loadingScreen = document.getElementById("loading-screen");
-  if (loadingScreen) loadingScreen.classList.add("hidden");
-}
+  if (savedName) {
+    nameInput.value = savedName;
+    joinScreen.classList.add("hidden");
+    chatScreen.classList.remove("hidden");
+    connect(savedName);
+  } else {
+    nameInput.focus();
+    hideLoadingScreen(); // nothing to auto-connect to — don't block the join screen
+  }
 })();
