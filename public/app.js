@@ -1,5 +1,5 @@
 (() => {
-  const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "🙏", "👍", "🔥", "🎉"];
+  const QUICK_REACTIONS = ["😎", "😂", "😮", "🥶", "🙏", "👍", "🔥", "🗿"];
 
   const joinScreen = document.getElementById("join-screen");
   const chatScreen = document.getElementById("chat-screen");
@@ -13,6 +13,14 @@
   const connectionDot = document.getElementById("connection-dot");
   const typingIndicator = document.getElementById("typing-indicator");
   const typingName = document.getElementById("typing-name");
+  const attachBtn = document.getElementById("attach-btn");
+  const imageInput = document.getElementById("image-input");
+  const lightbox = document.getElementById("lightbox");
+  const lightboxImg = document.getElementById("lightbox-img");
+
+  const MAX_IMAGE_DIMENSION = 1280;
+  const IMAGE_QUALITY = 0.72;
+  const MAX_SOURCE_FILE_BYTES = 15 * 1024 * 1024; // reject absurdly large source photos early
 
   let myName = "";
   let socket = null;
@@ -56,11 +64,15 @@
     row.className = `msg-row ${isMe ? "me" : "them"}`;
     row.dataset.id = msg.id;
 
+    const bubbleInner = msg.image
+      ? `<img class="msg-image" src="${msg.image}" alt="Shared photo" data-lightbox="${msg.id}" />`
+      : escapeHtml(msg.text);
+
     row.innerHTML = `
       ${!isMe ? `<p class="msg-name">${escapeHtml(msg.name)}</p>` : ""}
       <div class="msg-bubble-wrap">
-        <div class="msg-bubble" data-toggle-picker="${msg.id}">
-          ${escapeHtml(msg.text)}
+        <div class="msg-bubble ${msg.image ? "msg-bubble-image" : ""}" data-toggle-picker="${msg.id}">
+          ${bubbleInner}
           <div class="msg-meta"><span>${fmtTime(msg.time)}</span></div>
         </div>
         <button class="reaction-trigger" data-toggle-picker="${msg.id}">🙂</button>
@@ -102,6 +114,11 @@
   }
 
   messageList.addEventListener("click", (e) => {
+    const img = e.target.closest("[data-lightbox]");
+    if (img) {
+      openLightbox(img.src);
+      return;
+    }
     const toggle = e.target.closest("[data-toggle-picker]");
     if (toggle) {
       const id = toggle.dataset.togglePicker;
@@ -124,6 +141,18 @@
     const target = document.querySelector(`[data-reactions-for="${id}"]`);
     if (target) target.innerHTML = reactionsHtml(id, reactions);
   }
+
+  function openLightbox(src) {
+    lightboxImg.src = src;
+    lightbox.classList.remove("hidden");
+  }
+
+  function closeLightbox() {
+    lightbox.classList.add("hidden");
+    lightboxImg.src = "";
+  }
+
+  lightbox.addEventListener("click", closeLightbox);
 
   function updatePresence(names) {
     if (!names || names.length === 0) {
@@ -202,11 +231,66 @@
   function send() {
     const text = messageInput.value.trim();
     if (!text || !socket) return;
-    socket.emit("message", text);
+    socket.emit("message", { text });
     messageInput.value = "";
     autosize();
     socket.emit("typing", false);
   }
+
+  function compressImage(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read file"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("Could not decode image"));
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+            const scale = MAX_IMAGE_DIMENSION / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", IMAGE_QUALITY));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function sendImage(file) {
+    if (!socket || !file) return;
+    if (!file.type.startsWith("image/")) {
+      joinError.textContent = "";
+      return;
+    }
+    if (file.size > MAX_SOURCE_FILE_BYTES) {
+      renderSystem("That photo is too large to send.");
+      return;
+    }
+    attachBtn.disabled = true;
+    try {
+      const dataUrl = await compressImage(file);
+      socket.emit("message", { image: dataUrl });
+    } catch (err) {
+      renderSystem("Couldn't send that photo — try a different one.");
+    } finally {
+      attachBtn.disabled = false;
+    }
+  }
+
+  attachBtn.addEventListener("click", () => imageInput.click());
+  imageInput.addEventListener("change", () => {
+    const file = imageInput.files && imageInput.files[0];
+    if (file) sendImage(file);
+    imageInput.value = "";
+  });
 
   messageInput.addEventListener("input", () => {
     autosize();
