@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.tyce.chat",
+        "sha256_cert_fingerprints": ["5A:B4:9B:C1:BE:79:0D:19:EC:D1:42:F6:23:8A:DD:19:70:56:5A:20:F8:41:96:3B:56:D2:B1:13:86:7B:A9:08"]
+      }
+    }]
