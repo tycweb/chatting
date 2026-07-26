@@ -21,9 +21,21 @@
   const jumpCount = document.getElementById("jump-count");
   const soundToggle = document.getElementById("sound-toggle");
 
+  // Reply UI
+  const replyPreview = document.getElementById("reply-preview");
+  const replyPreviewName = document.getElementById("reply-preview-name");
+  const replyPreviewText = document.getElementById("reply-preview-text");
+  const replyPreviewClose = document.getElementById("reply-preview-close");
+
+  // Exit modal UI
+  const exitModal = document.getElementById("exit-modal");
+  const exitCancelBtn = document.getElementById("exit-cancel-btn");
+  const exitConfirmBtn = document.getElementById("exit-confirm-btn");
+
   const MAX_IMAGE_DIMENSION = 1280;
   const IMAGE_QUALITY = 0.72;
   const MAX_SOURCE_FILE_BYTES = 15 * 1024 * 1024; // reject absurdly large source photos early
+  const SWIPE_REPLY_THRESHOLD = 56; // px of horizontal drag needed to trigger reply
 
   let unreadCount = 0;
   let soundEnabled = true;
@@ -35,6 +47,9 @@
   let openPickerId = null;
   let typingTimeout = null;
   let othersTyping = new Map(); // name -> timeout id
+
+  const messagesById = new Map(); // id -> msg, so swipe-to-reply can look up content
+  let replyTarget = null; // { id, name, text, image }
 
   function fmtTime(ts) {
     const d = new Date(ts);
@@ -66,7 +81,18 @@
       .join("")}</div>`;
   }
 
+  function replyQuoteHtml(replyTo) {
+    if (!replyTo) return "";
+    const label = replyTo.image ? "📷 Photo" : escapeHtml(replyTo.text || "");
+    return `<div class="reply-quote">
+      <p class="reply-quote-name">${escapeHtml(replyTo.name || "")}</p>
+      <p class="reply-quote-text">${label}</p>
+    </div>`;
+  }
+
   function renderMessage(msg) {
+    messagesById.set(msg.id, msg);
+
     const isMe = msg.name === myName;
     const row = document.createElement("div");
     row.className = `msg-row ${isMe ? "me" : "them"}`;
@@ -90,10 +116,12 @@
       ${!isMe ? `<p class="msg-name">${escapeHtml(msg.name)}</p>` : ""}
       <div class="msg-bubble-wrap">
         <div class="${bubbleClasses.join(" ")}" data-toggle-picker="${msg.id}">
+          ${replyQuoteHtml(msg.replyTo)}
           ${bubbleInner}
           <div class="msg-meta"><span>${fmtTime(msg.time)}</span></div>
         </div>
         <button class="reaction-trigger" data-toggle-picker="${msg.id}">🙂</button>
+        <span class="swipe-reply-icon">↩</span>
       </div>
       <div data-reactions-for="${msg.id}">${reactionsHtml(msg.id, msg.reactions)}</div>
     `;
@@ -227,6 +255,102 @@
       });
     });
   }
+
+  // ---------- Reply-to feature ----------
+
+  function setReplyTarget(id) {
+    const msg = messagesById.get(id);
+    if (!msg) return;
+    replyTarget = {
+      id: msg.id,
+      name: msg.name === myName ? "You" : msg.name,
+      text: msg.text || "",
+      image: !!msg.image,
+    };
+    replyPreviewName.textContent = replyTarget.name;
+    replyPreviewText.textContent = replyTarget.image ? "📷 Photo" : replyTarget.text;
+    replyPreview.classList.remove("hidden");
+    messageInput.focus();
+    if (navigator.vibrate) navigator.vibrate(15);
+  }
+
+  function clearReplyTarget() {
+    replyTarget = null;
+    replyPreview.classList.add("hidden");
+  }
+
+  replyPreviewClose.addEventListener("click", clearReplyTarget);
+
+  // Swipe-to-reply: track touch drag on each message bubble-wrap
+  let swipeState = null; // { row, wrap, startX, startY, dragging, id }
+
+  messageList.addEventListener(
+    "touchstart",
+    (e) => {
+      const wrap = e.target.closest(".msg-bubble-wrap");
+      if (!wrap) return;
+      const row = wrap.closest(".msg-row");
+      if (!row) return;
+      const touch = e.touches[0];
+      swipeState = {
+        row,
+        wrap,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        dragging: false,
+        triggered: false,
+        id: row.dataset.id,
+      };
+    },
+    { passive: true }
+  );
+
+  messageList.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!swipeState) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - swipeState.startX;
+      const dy = touch.clientY - swipeState.startY;
+
+      if (!swipeState.dragging) {
+        // only start once horizontal intent is clear, so vertical scroll still works
+        if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return;
+        swipeState.dragging = true;
+      }
+
+      // Clamp and dampen the drag distance for a natural feel
+      const clamped = Math.max(-90, Math.min(90, dx));
+      swipeState.wrap.style.transform = `translateX(${clamped}px)`;
+      swipeState.wrap.style.transition = "none";
+
+      if (Math.abs(clamped) > SWIPE_REPLY_THRESHOLD && !swipeState.triggered) {
+        swipeState.triggered = true;
+        if (navigator.vibrate) navigator.vibrate(10);
+        swipeState.wrap.classList.add("swipe-armed");
+      } else if (Math.abs(clamped) <= SWIPE_REPLY_THRESHOLD && swipeState.triggered) {
+        swipeState.triggered = false;
+        swipeState.wrap.classList.remove("swipe-armed");
+      }
+    },
+    { passive: true }
+  );
+
+  function endSwipe() {
+    if (!swipeState) return;
+    const { wrap, triggered, id, dragging } = swipeState;
+    wrap.style.transition = "transform 0.18s ease";
+    wrap.style.transform = "translateX(0)";
+    wrap.classList.remove("swipe-armed");
+
+    if (dragging && triggered && id) {
+      setReplyTarget(id);
+    }
+    swipeState = null;
+  }
+
+  messageList.addEventListener("touchend", endSwipe);
+  messageList.addEventListener("touchcancel", endSwipe);
 
   messageList.addEventListener("click", (e) => {
     const img = e.target.closest("[data-lightbox]");
@@ -382,13 +506,18 @@
   function send() {
     const text = messageInput.value.trim();
     if (!text || !socket) return;
-    socket.emit("message", { text });
+    const payload = { text };
+    if (replyTarget) {
+      payload.replyTo = { id: replyTarget.id, name: replyTarget.name, text: replyTarget.text, image: replyTarget.image };
+    }
+    socket.emit("message", payload);
     messageInput.value = "";
     autosize();
     socket.emit("typing", false);
     sendBtn.classList.add("pulsing");
     setTimeout(() => sendBtn.classList.remove("pulsing"), 360);
     if (navigator.vibrate) navigator.vibrate(10);
+    clearReplyTarget();
   }
 
   function compressImage(file) {
@@ -431,7 +560,12 @@
     attachBtn.disabled = true;
     try {
       const dataUrl = await compressImage(file);
-      socket.emit("message", { image: dataUrl });
+      const payload = { image: dataUrl };
+      if (replyTarget) {
+        payload.replyTo = { id: replyTarget.id, name: replyTarget.name, text: replyTarget.text, image: replyTarget.image };
+      }
+      socket.emit("message", payload);
+      clearReplyTarget();
     } catch (err) {
       renderSystem("Couldn't send that photo — try a different one.");
     } finally {
@@ -466,6 +600,46 @@
   });
 
   sendBtn.addEventListener("click", send);
+
+  // ---------- Exit confirmation ----------
+  // Pushes one extra history entry as a "guard". Hardware/gesture back triggers
+  // a popstate instead of immediately closing the app, so we can show a
+  // confirmation modal first.
+
+  let guardActive = false;
+
+  function armExitGuard() {
+    if (guardActive) return;
+    guardActive = true;
+    history.pushState({ exitGuard: true }, "", location.href);
+  }
+
+  function showExitModal() {
+    exitModal.classList.remove("hidden");
+  }
+
+  function hideExitModal() {
+    exitModal.classList.add("hidden");
+  }
+
+  window.addEventListener("popstate", () => {
+    guardActive = false;
+    showExitModal();
+  });
+
+  exitCancelBtn.addEventListener("click", () => {
+    hideExitModal();
+    armExitGuard();
+  });
+
+  exitConfirmBtn.addEventListener("click", () => {
+    hideExitModal();
+    // Try to close the app/tab. If that's blocked by the platform, the guard
+    // has already been consumed, so the next back press will exit normally.
+    window.close();
+  });
+
+  armExitGuard();
 
   function doJoin() {
   const name = nameInput.value.trim();
