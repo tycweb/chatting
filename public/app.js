@@ -911,9 +911,9 @@
     return ffmpeg;
   }
 
-  // Compresses `file` toward targetBytes by capping bitrate/resolution.
-  // Returns a Blob (video/mp4). Throws if ffmpeg fails to load or run.
-  async function compressVideo(file, targetBytes, onProgress) {
+  // Primary compressor: ffmpeg.wasm. Loads external CDN scripts, so it can be
+  // blocked by some in-app WebViews — compressVideo() falls back if this throws.
+  async function compressVideoFfmpeg(file, targetBytes, onProgress) {
     const { fetchFile } = await import("https://esm.sh/@ffmpeg/util@0.12.1");
     const ffmpeg = await getFFmpeg();
 
@@ -950,6 +950,103 @@
       if (progressHandler) ffmpeg.off("progress", progressHandler);
       await ffmpeg.deleteFile(inputName).catch(() => {});
       await ffmpeg.deleteFile(outputName).catch(() => {});
+    }
+  }
+
+  // Fallback compressor: uses only built-in browser APIs (no CDN/wasm), for
+  // environments (some in-app WebViews) that block loading external scripts.
+  function compressVideoNative(file, targetBytes, onProgress) {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      video.playsInline = true;
+      video.muted = false;
+      video.volume = 0; // silent during re-encode, but keeps the audio track alive
+      const url = URL.createObjectURL(file);
+      video.src = url;
+
+      const cleanup = () => URL.revokeObjectURL(url);
+
+      video.onloadedmetadata = async () => {
+        const duration = video.duration && isFinite(video.duration) ? video.duration : 30;
+
+        const captureFn = video.captureStream || video.mozCaptureStream;
+        if (!captureFn) {
+          cleanup();
+          reject(new Error("captureStream not supported on this device"));
+          return;
+        }
+        let stream;
+        try {
+          stream = captureFn.call(video);
+        } catch (e) {
+          cleanup();
+          reject(e);
+          return;
+        }
+
+        let mimeType = "video/webm;codecs=vp9,opus";
+        if (!window.MediaRecorder || !MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = "video/webm;codecs=vp8,opus";
+        }
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = "video/webm";
+        if (!window.MediaRecorder || !MediaRecorder.isTypeSupported(mimeType)) {
+          cleanup();
+          reject(new Error("MediaRecorder not supported on this device"));
+          return;
+        }
+
+        const targetBitrate = Math.max(Math.floor((targetBytes * 8) / duration), 200000);
+        let recorder;
+        try {
+          recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: targetBitrate });
+        } catch (e) {
+          cleanup();
+          reject(e);
+          return;
+        }
+
+        const chunks = [];
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+        recorder.onerror = (e) => {
+          cleanup();
+          reject(e.error || new Error("Recorder error"));
+        };
+        recorder.onstop = () => {
+          cleanup();
+          resolve(new Blob(chunks, { type: mimeType }));
+        };
+
+        video.ontimeupdate = () => {
+          if (onProgress) onProgress(Math.min(video.currentTime / duration, 1));
+        };
+        video.onended = () => recorder.stop();
+
+        try {
+          recorder.start(250);
+          await video.play();
+        } catch (e) {
+          cleanup();
+          reject(e);
+        }
+      };
+
+      video.onerror = () => {
+        cleanup();
+        reject(new Error("Could not load video for compression"));
+      };
+    });
+  }
+
+  // Tries ffmpeg.wasm first; if that fails to load/run (e.g. blocked CDN in
+  // some app WebViews), falls back to the native MediaRecorder method.
+  async function compressVideo(file, targetBytes, onProgress) {
+    try {
+      return await compressVideoFfmpeg(file, targetBytes, onProgress);
+    } catch (ffmpegErr) {
+      console.error("ffmpeg.wasm compression failed, falling back to native:", ffmpegErr);
+      return await compressVideoNative(file, targetBytes, onProgress);
     }
   }
 
