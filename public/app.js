@@ -64,7 +64,14 @@
   }
 
   function scrollToBottom() {
-    messageList.scrollTop = messageList.scrollHeight;
+    // Run after the browser has actually laid out the new content —
+    // a single synchronous scroll can land short if images/fonts are
+    // still resolving their final height.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        messageList.scrollTop = messageList.scrollHeight;
+      });
+    });
   }
 
   function renderSystem(text) {
@@ -655,6 +662,16 @@
         messageList.innerHTML = "";
         res.history.forEach(renderMessage);
         scrollToBottom();
+
+        // Photos load asynchronously and grow the page after the fact —
+        // re-anchor to the bottom each time one finishes so we don't get
+        // stranded above the latest message.
+        messageList.querySelectorAll("img.msg-image").forEach((img) => {
+          if (!img.complete) {
+            img.addEventListener("load", scrollToBottom, { once: true });
+          }
+        });
+
         presenceLine.textContent = "connected";
         setupPush(myName);
       });
