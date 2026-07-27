@@ -686,7 +686,15 @@
     socket.on("connect", () => {
       clearInterval(cycleTimer);
       clearTimeout(giveUpTimer);
-      hideLoadingScreen();
+
+      // Give a clear "connected" beat instead of just vanishing the
+      // loading screen the instant the socket connects — the pulse stops,
+      // the icon flashes brighter, and the text confirms it before we hide.
+      const loadingScreen = document.getElementById("loading-screen");
+      if (loadingScreen) loadingScreen.classList.add("connected");
+      if (loadingText) loadingText.textContent = "Connected!";
+      setTimeout(hideLoadingScreen, 500);
+
       connectionDot.classList.add("online");
       connectionDot.classList.remove("offline");
       socket.emit("join", name, (res) => {

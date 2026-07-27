@@ -701,12 +701,54 @@ html, body {
   z-index: 9999;
   color: #ffffff;
   gap: 16px;
+  overflow: hidden;
+}
+
+/* Soft radial pulse behind the icon so the screen itself feels "alive"
+   while we're waiting on the socket, instead of sitting static. */
+#loading-screen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.10), transparent 60%);
+  animation: loadingPulseBg 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes loadingPulseBg {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
 }
 
 #loading-screen img {
+  position: relative;
   animation: loadingBounce 1.6s ease-in-out infinite,
              loadingGlow 2.4s ease-in-out infinite;
   border-radius: 20px;
+}
+
+/* Brief "connected" state: pulse stops, glow snaps brighter, spinner and
+   dots fade out so the flash reads as a clear success beat, not more waiting. */
+#loading-screen.connected::before {
+  animation: none;
+  background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.3), transparent 60%);
+  transition: background 0.3s ease;
+}
+
+#loading-screen.connected img {
+  animation: none;
+  filter: drop-shadow(0 0 20px rgba(255,255,255,0.45));
+}
+
+#loading-screen.connected .spinner,
+#loading-screen.connected .loading-dots {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#loading-screen.connected #loading-text {
+  color: #ffffff;
+  font-weight: 600;
 }
 
 @keyframes loadingBounce {
