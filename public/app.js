@@ -983,6 +983,7 @@
       socket.emit("message", payload);
       clearReplyTarget();
     } catch (err) {
+      console.error("Video compression/send failed:", err);
       renderSystem(
         needsCompression
           ? "Couldn't compress that video — try a shorter clip."
