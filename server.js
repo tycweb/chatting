@@ -14,6 +14,10 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 const MAX_HISTORY = 200;
+const MAX_FULL_VIDEOS = 8; // 8 * MAX_VIDEO_BYTES (27MB) ≈ 216MB — stays under
+// Upstash free tier's 256MB cap and well under Render free's 512MB RAM.
+// Applied live (not just at save time) so the process itself never holds
+// more than this many full videos in memory, regardless of restarts.
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_NAME_LENGTH = 24;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded ceiling for a single photo
@@ -52,14 +56,10 @@ async function loadHistoryFromRedis() {
 
 function saveHistoryToRedis() {
   if (!redisClient) return;
-  // Videos are only kept in memory for the life of this server process —
-  // saving them to Redis would blow through the free-tier storage limit
-  // fast. Everything else (text, photos, reactions) persists normally.
-  const trimmed = history.map((m) =>
-    m.video ? { ...m, video: null, videoOmitted: true } : m
-  );
+  // Videos are capped at MAX_FULL_VIDEOS before this ever runs (see
+  // trimOldVideos), so what we save here is already bounded.
   redisClient
-    .set(HISTORY_KEY, JSON.stringify(trimmed))
+    .set(HISTORY_KEY, JSON.stringify(history))
     .catch((err) => console.error("Failed to save history to Redis:", err.message));
 }
 
@@ -149,6 +149,19 @@ function buildReplySnapshot(rawReplyTo) {
   };
 }
 
+// Keeps at most MAX_FULL_VIDEOS videos with actual data in memory at once.
+// Doesn't touch clients who already have a video rendered in their DOM —
+// only affects the server's own copy (what gets sent to new joiners and
+// what gets persisted to Redis on the next save).
+function trimOldVideos() {
+  const videoMsgs = history.filter((m) => m.video);
+  const excess = videoMsgs.length - MAX_FULL_VIDEOS;
+  for (let i = 0; i < excess; i++) {
+    videoMsgs[i].video = null;
+    videoMsgs[i].videoOmitted = true;
+  }
+}
+
 io.on("connection", (socket) => {
   socket.on("join", (rawName, ack) => {
     const name = sanitize(rawName).slice(0, MAX_NAME_LENGTH) || `Guest${Math.floor(Math.random() * 1000)}`;
@@ -201,6 +214,7 @@ io.on("connection", (socket) => {
 
     history.push(msg);
     if (history.length > MAX_HISTORY) history.shift();
+    if (msg.video) trimOldVideos();
     saveHistoryToRedis();
 
     io.emit("message", msg);
