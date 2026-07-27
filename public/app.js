@@ -829,6 +829,14 @@
     });
   }
 
+  function nextPaint() {
+    return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }
+
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function sendImage(file) {
     if (!socket || !file) return;
     if (!file.type.startsWith("image/")) return;
@@ -838,12 +846,15 @@
     }
     attachBtn.disabled = true;
     const statusEl = renderStatus("Sending photo…");
+    await nextPaint(); // make sure the status line actually shows before we start work
+    const minVisible = wait(500);
     try {
       const dataUrl = await compressImage(file);
       const payload = { image: dataUrl };
       if (replyTarget) {
         payload.replyTo = { id: replyTarget.id };
       }
+      await minVisible;
       socket.emit("message", payload);
       clearReplyTarget();
     } catch (err) {
@@ -872,12 +883,15 @@
     }
     attachBtn.disabled = true;
     const statusEl = renderStatus("Sending video…");
+    await nextPaint(); // make sure the status line actually shows before we start work
+    const minVisible = wait(500);
     try {
       const dataUrl = await readFileAsDataUrl(file);
       const payload = { video: dataUrl };
       if (replyTarget) {
         payload.replyTo = { id: replyTarget.id };
       }
+      await minVisible;
       socket.emit("message", payload);
       clearReplyTarget();
     } catch (err) {
