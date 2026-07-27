@@ -39,7 +39,9 @@
   const MAX_IMAGE_DIMENSION = 1280;
   const IMAGE_QUALITY = 0.72;
   const MAX_SOURCE_FILE_BYTES = 15 * 1024 * 1024;
-  const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+  const VIDEO_COMPRESS_THRESHOLD_BYTES = 20 * 1024 * 1024; // at/under this: send as-is, untouched
+  const VIDEO_TARGET_COMPRESSED_BYTES = 5 * 1024 * 1024;   // above threshold: compress down toward this
+  const VIDEO_HARD_MAX_SOURCE_BYTES = 150 * 1024 * 1024;   // above this: don't even attempt it in-browser
   const SWIPE_REPLY_THRESHOLD = 56;
   const LONG_PRESS_MS = 420;
   const LONG_PRESS_MOVE_CANCEL = 12;
@@ -874,19 +876,105 @@
     });
   }
 
+  // --- Video compression (only kicks in above VIDEO_COMPRESS_THRESHOLD_BYTES) ---
+
+  let ffmpegInstance = null;
+
+  function getVideoDuration(file) {
+    return new Promise((resolve) => {
+      const videoEl = document.createElement("video");
+      videoEl.preload = "metadata";
+      const url = URL.createObjectURL(file);
+      videoEl.onloadedmetadata = () => {
+        URL.revokeObjectURL(url);
+        resolve(videoEl.duration && isFinite(videoEl.duration) ? videoEl.duration : 0);
+      };
+      videoEl.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(0); // fall back to a safe guess in compressVideo if this fails
+      };
+      videoEl.src = url;
+    });
+  }
+
+  async function getFFmpeg() {
+    if (ffmpegInstance) return ffmpegInstance;
+    const { FFmpeg } = await import("https://esm.sh/@ffmpeg/ffmpeg@0.12.10");
+    const { toBlobURL } = await import("https://esm.sh/@ffmpeg/util@0.12.1");
+    const ffmpeg = new FFmpeg();
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    });
+    ffmpegInstance = ffmpeg;
+    return ffmpeg;
+  }
+
+  // Compresses `file` toward targetBytes by capping bitrate/resolution.
+  // Returns a Blob (video/mp4). Throws if ffmpeg fails to load or run.
+  async function compressVideo(file, targetBytes, onProgress) {
+    const { fetchFile } = await import("https://esm.sh/@ffmpeg/util@0.12.1");
+    const ffmpeg = await getFFmpeg();
+
+    const duration = (await getVideoDuration(file)) || 30; // safe guess if metadata read fails
+    const AUDIO_KBPS = 96;
+    const MIN_VIDEO_KBPS = 150; // floor so long clips don't turn to mush
+    let videoKbps = Math.floor((targetBytes * 8) / duration / 1000) - AUDIO_KBPS;
+    videoKbps = Math.max(videoKbps, MIN_VIDEO_KBPS);
+
+    const inputName = "input" + (file.name.match(/\.\w+$/)?.[0] || ".mp4");
+    const outputName = "output.mp4";
+
+    await ffmpeg.writeFile(inputName, await fetchFile(file));
+
+    let progressHandler;
+    if (onProgress) {
+      progressHandler = ({ progress }) => onProgress(Math.min(Math.max(progress, 0), 1));
+      ffmpeg.on("progress", progressHandler);
+    }
+
+    try {
+      await ffmpeg.exec([
+        "-i", inputName,
+        "-vf", "scale='min(1280,iw)':-2",
+        "-b:v", `${videoKbps}k`,
+        "-b:a", `${AUDIO_KBPS}k`,
+        "-preset", "veryfast",
+        "-movflags", "+faststart",
+        outputName,
+      ]);
+      const data = await ffmpeg.readFile(outputName);
+      return new Blob([data.buffer], { type: "video/mp4" });
+    } finally {
+      if (progressHandler) ffmpeg.off("progress", progressHandler);
+      await ffmpeg.deleteFile(inputName).catch(() => {});
+      await ffmpeg.deleteFile(outputName).catch(() => {});
+    }
+  }
+
   async function sendVideo(file) {
     if (!socket || !file) return;
     if (!file.type.startsWith("video/")) return;
-    if (file.size > MAX_VIDEO_BYTES) {
-      renderSystem("That video is too large to send (20MB max).");
+    if (file.size > VIDEO_HARD_MAX_SOURCE_BYTES) {
+      renderSystem("That video is too large to send, even with compression.");
       return;
     }
+
+    const needsCompression = file.size > VIDEO_COMPRESS_THRESHOLD_BYTES;
     attachBtn.disabled = true;
-    const statusEl = renderStatus("Sending video…");
+    const statusEl = renderStatus(needsCompression ? "Compressing video… 0%" : "Sending video…");
     await nextPaint(); // make sure the status line actually shows before we start work
     const minVisible = wait(500);
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      let outFile = file;
+      if (needsCompression) {
+        outFile = await compressVideo(file, VIDEO_TARGET_COMPRESSED_BYTES, (progress) => {
+          statusEl.textContent = `Compressing video… ${Math.round(progress * 100)}%`;
+        });
+        statusEl.textContent = "Sending video…";
+      }
+      const dataUrl = await readFileAsDataUrl(outFile);
       const payload = { video: dataUrl };
       if (replyTarget) {
         payload.replyTo = { id: replyTarget.id };
@@ -895,7 +983,11 @@
       socket.emit("message", payload);
       clearReplyTarget();
     } catch (err) {
-      renderSystem("Couldn't send that video — try a different one.");
+      renderSystem(
+        needsCompression
+          ? "Couldn't compress that video — try a shorter clip."
+          : "Couldn't send that video — try a different one."
+      );
     } finally {
       attachBtn.disabled = false;
       statusEl.remove();
