@@ -39,6 +39,7 @@
   const MAX_IMAGE_DIMENSION = 1280;
   const IMAGE_QUALITY = 0.72;
   const MAX_SOURCE_FILE_BYTES = 15 * 1024 * 1024;
+  const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
   const SWIPE_REPLY_THRESHOLD = 56;
   const LONG_PRESS_MS = 420;
   const LONG_PRESS_MOVE_CANCEL = 12;
@@ -97,7 +98,7 @@
 
   function replyQuoteHtml(replyTo) {
     if (!replyTo) return "";
-    const label = replyTo.image ? "📷 Photo" : escapeHtml(replyTo.text || "");
+    const label = replyTo.video ? "🎥 Video" : replyTo.image ? "📷 Photo" : escapeHtml(replyTo.text || "");
     return `<div class="reply-quote">
       <p class="reply-quote-name">${escapeHtml(replyTo.name || "")}</p>
       <p class="reply-quote-text">${label}</p>
@@ -118,9 +119,13 @@
       `;
     }
 
-    const jumbo = !msg.image && isJumboEmoji(msg.text);
+    const jumbo = !msg.image && !msg.video && isJumboEmoji(msg.text);
     let bubbleInner;
-    if (msg.image) {
+    if (msg.video) {
+      bubbleInner = `<video class="msg-video" src="${msg.video}" controls playsinline preload="metadata"></video>`;
+    } else if (msg.videoOmitted) {
+      bubbleInner = `<span>🎥 Video (no longer available after restart)</span>`;
+    } else if (msg.image) {
       bubbleInner = `<img class="msg-image" src="${msg.image}" alt="Shared photo" data-lightbox="${msg.id}" />`;
     } else if (jumbo) {
       bubbleInner = escapeHtml(msg.text);
@@ -130,6 +135,7 @@
 
     const bubbleClasses = ["msg-bubble"];
     if (msg.image) bubbleClasses.push("msg-bubble-image");
+    if (msg.video) bubbleClasses.push("msg-bubble-image"); // reuse the same no-padding media styling
     if (jumbo) bubbleClasses.push("msg-bubble-jumbo");
 
     const editedTag = msg.edited ? `<span class="edited-tag">edited</span>` : "";
@@ -835,13 +841,49 @@
     }
   }
 
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read file"));
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function sendVideo(file) {
+    if (!socket || !file) return;
+    if (!file.type.startsWith("video/")) return;
+    if (file.size > MAX_VIDEO_BYTES) {
+      renderSystem("That video is too large to send (20MB max).");
+      return;
+    }
+    attachBtn.disabled = true;
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const payload = { video: dataUrl };
+      if (replyTarget) {
+        payload.replyTo = { id: replyTarget.id };
+      }
+      socket.emit("message", payload);
+      clearReplyTarget();
+    } catch (err) {
+      renderSystem("Couldn't send that video — try a different one.");
+    } finally {
+      attachBtn.disabled = false;
+    }
+  }
+
   attachBtn.addEventListener("click", () => imageInput.click());
   imageInput.addEventListener("change", () => {
     const file = imageInput.files && imageInput.files[0];
     if (file) {
       attachBtn.classList.add("pulsing");
       setTimeout(() => attachBtn.classList.remove("pulsing"), 320);
-      sendImage(file);
+      if (file.type.startsWith("video/")) {
+        sendVideo(file);
+      } else {
+        sendImage(file);
+      }
     }
     imageInput.value = "";
   });
