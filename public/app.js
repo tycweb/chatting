@@ -1017,7 +1017,13 @@
         };
         recorder.onstop = () => {
           cleanup();
-          resolve(new Blob(chunks, { type: mimeType }));
+          // Use the base mime type (no codecs param) for the Blob/data URL.
+          // mimeType (e.g. "video/webm;codecs=vp9,opus") is fine for
+          // MediaRecorder, but its embedded comma corrupts a data: URL —
+          // readAsDataURL splits on the first comma, so "vp9,opus" breaks
+          // the encoding right in the middle of the header.
+          const blobType = mimeType.split(";")[0];
+          resolve(new Blob(chunks, { type: blobType }));
         };
 
         video.ontimeupdate = () => {
