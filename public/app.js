@@ -959,8 +959,10 @@
     return new Promise((resolve, reject) => {
       const video = document.createElement("video");
       video.playsInline = true;
-      video.muted = false;
-      video.volume = 0; // silent during re-encode, but keeps the audio track alive
+      // Muted (not just volume=0) so Chrome's autoplay policy allows play()
+      // without a fresh user gesture — captureStream() still records the
+      // audio track even though it's silent on the speaker.
+      video.muted = true;
       const url = URL.createObjectURL(file);
       video.src = url;
 
