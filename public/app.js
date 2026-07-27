@@ -83,6 +83,17 @@
     scrollToBottom();
   }
 
+  // Same as renderSystem, but returns the element so the caller can remove
+  // or update it later — used for transient "Sending…" style status lines.
+  function renderStatus(text) {
+    const el = document.createElement("div");
+    el.className = "system-line";
+    el.textContent = text;
+    messageList.appendChild(el);
+    scrollToBottom();
+    return el;
+  }
+
   function reactionsHtml(id, reactions) {
     const entries = Object.entries(reactions || {});
     if (entries.length === 0) return "";
@@ -826,6 +837,7 @@
       return;
     }
     attachBtn.disabled = true;
+    const statusEl = renderStatus("Sending photo…");
     try {
       const dataUrl = await compressImage(file);
       const payload = { image: dataUrl };
@@ -838,6 +850,7 @@
       renderSystem("Couldn't send that photo — try a different one.");
     } finally {
       attachBtn.disabled = false;
+      statusEl.remove();
     }
   }
 
@@ -858,6 +871,7 @@
       return;
     }
     attachBtn.disabled = true;
+    const statusEl = renderStatus("Sending video…");
     try {
       const dataUrl = await readFileAsDataUrl(file);
       const payload = { video: dataUrl };
@@ -870,6 +884,7 @@
       renderSystem("Couldn't send that video — try a different one.");
     } finally {
       attachBtn.disabled = false;
+      statusEl.remove();
     }
   }
 
