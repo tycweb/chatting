@@ -3,6 +3,7 @@ const http = require("http");
 const path = require("path");
 const { Server } = require("socket.io");
 const webpush = require("web-push");
+const { createClient } = require("redis");
 
 const app = express();
 const server = http.createServer(app);
@@ -17,9 +18,43 @@ const MAX_MESSAGE_LENGTH = 2000;
 const MAX_NAME_LENGTH = 24;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded ceiling for a single photo
 
-// In-memory state (resets when the server restarts)
+// In-memory state — this stays the "live" working copy so edit/delete/react
+// lookups are instant. It's mirrored to Redis so it survives restarts.
 const history = [];
 const onlineUsers = new Map(); // socket.id -> name
+
+// --- Redis (persists chat history across restarts / cold starts) ---
+const REDIS_URL = process.env.REDIS_URL;
+const HISTORY_KEY = "tycept:history";
+let redisClient = null;
+
+if (REDIS_URL) {
+  redisClient = createClient({ url: REDIS_URL });
+  redisClient.on("error", (err) => console.error("Redis error:", err.message));
+} else {
+  console.warn("REDIS_URL not set — chat history will NOT persist across restarts.");
+}
+
+async function loadHistoryFromRedis() {
+  if (!redisClient) return;
+  try {
+    const raw = await redisClient.get(HISTORY_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (Array.isArray(saved)) history.push(...saved);
+      console.log(`Loaded ${history.length} messages from Redis.`);
+    }
+  } catch (err) {
+    console.error("Failed to load history from Redis:", err.message);
+  }
+}
+
+function saveHistoryToRedis() {
+  if (!redisClient) return;
+  redisClient
+    .set(HISTORY_KEY, JSON.stringify(history))
+    .catch((err) => console.error("Failed to save history to Redis:", err.message));
+}
 
 // --- Push notifications setup ---
 // Generate once with: npx web-push generate-vapid-keys
@@ -150,6 +185,7 @@ io.on("connection", (socket) => {
 
     history.push(msg);
     if (history.length > MAX_HISTORY) history.shift();
+    saveHistoryToRedis();
 
     io.emit("message", msg);
     notifyNewMessage(msg).catch((err) => console.error("notifyNewMessage error:", err));
@@ -170,6 +206,7 @@ io.on("connection", (socket) => {
 
     msg.text = clean;
     msg.edited = true;
+    saveHistoryToRedis();
 
     io.emit("edited", { id, text: msg.text, edited: true });
   });
@@ -186,6 +223,7 @@ io.on("connection", (socket) => {
     msg.text = "";
     msg.image = null;
     msg.reactions = {};
+    saveHistoryToRedis();
 
     io.emit("deleted", { id });
   });
@@ -211,6 +249,7 @@ io.on("connection", (socket) => {
       if (msg.reactions[emoji].length === 0) delete msg.reactions[emoji];
     }
 
+    saveHistoryToRedis();
     io.emit("reaction", { id, reactions: msg.reactions });
   });
 
@@ -224,7 +263,20 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Chat server running: http://localhost:${PORT}`);
-  console.log(`On your phone's Wi-Fi network, friends can use: http://<your-local-ip>:${PORT}`);
-});
+async function start() {
+  if (redisClient) {
+    try {
+      await redisClient.connect();
+      await loadHistoryFromRedis();
+    } catch (err) {
+      console.error("Could not connect to Redis, starting with empty history:", err.message);
+    }
+  }
+
+  server.listen(PORT, () => {
+    console.log(`Chat server running: http://localhost:${PORT}`);
+    console.log(`On your phone's Wi-Fi network, friends can use: http://<your-local-ip>:${PORT}`);
+  });
+}
+
+start();
