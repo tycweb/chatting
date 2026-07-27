@@ -1000,6 +1000,8 @@
     connect(savedName);
   } else {
     nameInput.focus();
-    hideLoadingScreen(); // nothing to auto-connect to — don't block the join screen
+    // Let the loading screen actually paint and show briefly on fresh visits,
+    // instead of hiding it in the same tick (which skipped it entirely).
+    setTimeout(hideLoadingScreen, 900);
   }
 })();
