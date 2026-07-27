@@ -9,7 +9,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" },
-  maxHttpBufferSize: 6 * 1024 * 1024, // allow compressed photo payloads through
+  maxHttpBufferSize: 30 * 1024 * 1024, // allow base64 video payloads (~20MB video -> ~27MB encoded) through
 });
 
 const PORT = process.env.PORT || 3000;
@@ -17,6 +17,7 @@ const MAX_HISTORY = 200;
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_NAME_LENGTH = 24;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded ceiling for a single photo
+const MAX_VIDEO_BYTES = 27 * 1024 * 1024; // ~20MB video, base64-encoded (adds ~33%)
 
 // In-memory state — this stays the "live" working copy so edit/delete/react
 // lookups are instant. It's mirrored to Redis so it survives restarts.
@@ -51,8 +52,14 @@ async function loadHistoryFromRedis() {
 
 function saveHistoryToRedis() {
   if (!redisClient) return;
+  // Videos are only kept in memory for the life of this server process —
+  // saving them to Redis would blow through the free-tier storage limit
+  // fast. Everything else (text, photos, reactions) persists normally.
+  const trimmed = history.map((m) =>
+    m.video ? { ...m, video: null, videoOmitted: true } : m
+  );
   redisClient
-    .set(HISTORY_KEY, JSON.stringify(history))
+    .set(HISTORY_KEY, JSON.stringify(trimmed))
     .catch((err) => console.error("Failed to save history to Redis:", err.message));
 }
 
@@ -92,7 +99,7 @@ app.post("/api/subscribe", (req, res) => {
 
 // Notify everyone except the sender that a new message arrived.
 async function notifyNewMessage(msg) {
-  const body = msg.image ? "📷 Sent a photo" : msg.text;
+  const body = msg.video ? "🎥 Sent a video" : msg.image ? "📷 Sent a photo" : msg.text;
   const payload = JSON.stringify({
     title: `${msg.name} in Tycept`,
     body,
@@ -136,8 +143,9 @@ function buildReplySnapshot(rawReplyTo) {
   return {
     id: original.id,
     name: original.name,
-    text: original.image ? "" : original.text.slice(0, 120),
+    text: original.image || original.video ? "" : original.text.slice(0, 120),
     image: !!original.image,
+    video: !!original.video,
   };
 }
 
@@ -159,6 +167,7 @@ io.on("connection", (socket) => {
 
     const rawText = typeof payload === "string" ? payload : payload && payload.text;
     const rawImage = payload && typeof payload === "object" ? payload.image : null;
+    const rawVideo = payload && typeof payload === "object" ? payload.video : null;
     const rawReplyTo = payload && typeof payload === "object" ? payload.replyTo : null;
 
     const clean = sanitize(rawText).slice(0, MAX_MESSAGE_LENGTH);
@@ -169,13 +178,20 @@ io.on("connection", (socket) => {
       image = rawImage;
     }
 
-    if (!clean && !image) return; // nothing to send
+    let video = null;
+    if (typeof rawVideo === "string" && rawVideo.startsWith("data:video/")) {
+      if (rawVideo.length > MAX_VIDEO_BYTES) return; // reject oversized payloads
+      video = rawVideo;
+    }
+
+    if (!clean && !image && !video) return; // nothing to send
 
     const msg = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name,
       text: clean,
       image,
+      video,
       time: Date.now(),
       reactions: {}, // emoji -> [names]
       replyTo: buildReplySnapshot(rawReplyTo),
@@ -222,6 +238,7 @@ io.on("connection", (socket) => {
     msg.deleted = true;
     msg.text = "";
     msg.image = null;
+    msg.video = null;
     msg.reactions = {};
     saveHistoryToRedis();
 
