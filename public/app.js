@@ -21,6 +21,15 @@
   const jumpCount = document.getElementById("jump-count");
   const soundToggle = document.getElementById("sound-toggle");
 
+  // Search UI
+  const searchBtn = document.getElementById("search-btn");
+  const searchBar = document.getElementById("search-bar");
+  const searchInput = document.getElementById("search-input");
+  const searchCount = document.getElementById("search-count");
+  const searchPrev = document.getElementById("search-prev");
+  const searchNext = document.getElementById("search-next");
+  const searchClose = document.getElementById("search-close");
+
   // Reply UI
   const replyPreview = document.getElementById("reply-preview");
   const replyPreviewName = document.getElementById("reply-preview-name");
@@ -111,11 +120,35 @@
 
   function replyQuoteHtml(replyTo) {
     if (!replyTo) return "";
-    const label = replyTo.video ? "🎥 Video" : replyTo.image ? "📷 Photo" : escapeHtml(replyTo.text || "");
-    return `<div class="reply-quote">
+    const label = replyTo.video
+      ? "🎥 Video"
+      : replyTo.image
+      ? "📷 Photo"
+      : escapeHtml(replyTo.text || "");
+    const jumpAttr = replyTo.id ? ` data-jump-to="${replyTo.id}"` : "";
+    return `<div class="reply-quote"${jumpAttr}>
       <p class="reply-quote-name">${escapeHtml(replyTo.name || "")}</p>
       <p class="reply-quote-text">${label}</p>
     </div>`;
+  }
+
+  // Scrolls to and briefly highlights the original message a reply points
+  // to. If it isn't loaded (e.g. older than the history the client has),
+  // shows a small system note instead of doing nothing silently.
+  function jumpToMessage(id) {
+    const row = messageList.querySelector(`.msg-row[data-id="${id}"]`);
+    if (!row) {
+      renderSystem("Original message isn't loaded.");
+      return;
+    }
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.classList.remove("jump-flash");
+    // Force reflow so re-adding the class restarts the animation even if
+    // the same message is jumped to twice in a row.
+    void row.offsetWidth;
+    row.classList.add("jump-flash");
+    if (navigator.vibrate) navigator.vibrate(10);
+    setTimeout(() => row.classList.remove("jump-flash"), 1000);
   }
 
   function buildRowInnerHtml(msg) {
@@ -320,9 +353,14 @@
       name: msg.name === myName ? "You" : msg.name,
       text: msg.text || "",
       image: !!msg.image,
+      video: !!msg.video,
     };
     replyPreviewName.textContent = replyTarget.name;
-    replyPreviewText.textContent = replyTarget.image ? "📷 Photo" : replyTarget.text;
+    replyPreviewText.textContent = replyTarget.video
+      ? "🎥 Video"
+      : replyTarget.image
+      ? "📷 Photo"
+      : replyTarget.text;
     replyPreview.classList.remove("hidden");
     messageInput.focus();
     if (navigator.vibrate) navigator.vibrate(15);
@@ -437,6 +475,78 @@
     if (navigator.vibrate) navigator.vibrate(18);
   }
 
+  // ---------- Search ----------
+
+  let searchMatches = [];
+  let searchIndex = -1;
+
+  function runSearch(query) {
+    const q = query.trim().toLowerCase();
+    searchMatches = [];
+    searchIndex = -1;
+    if (!q) {
+      searchCount.textContent = "";
+      return;
+    }
+    // messagesById preserves insertion order, which matches the DOM order
+    // messages were rendered in, so results come back oldest to newest.
+    for (const msg of messagesById.values()) {
+      if (msg.deleted || msg.image || msg.video) continue;
+      if ((msg.text || "").toLowerCase().includes(q)) {
+        searchMatches.push(msg.id);
+      }
+    }
+    if (searchMatches.length === 0) {
+      searchCount.textContent = "0/0";
+      return;
+    }
+    // Jump to the most recent match first — that's almost always what
+    // someone searching a live chat actually wants.
+    searchIndex = searchMatches.length - 1;
+    showSearchMatch();
+  }
+
+  function showSearchMatch() {
+    if (searchIndex < 0 || searchMatches.length === 0) return;
+    searchCount.textContent = `${searchIndex + 1}/${searchMatches.length}`;
+    jumpToMessage(searchMatches[searchIndex]);
+  }
+
+  searchBtn.addEventListener("click", () => {
+    searchBar.classList.remove("hidden");
+    searchInput.focus();
+  });
+
+  searchClose.addEventListener("click", () => {
+    searchBar.classList.add("hidden");
+    searchInput.value = "";
+    searchMatches = [];
+    searchIndex = -1;
+    searchCount.textContent = "";
+  });
+
+  searchInput.addEventListener("input", () => runSearch(searchInput.value));
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) searchPrev.click();
+      else searchNext.click();
+    }
+    if (e.key === "Escape") searchClose.click();
+  });
+
+  searchPrev.addEventListener("click", () => {
+    if (searchMatches.length === 0) return;
+    searchIndex = (searchIndex - 1 + searchMatches.length) % searchMatches.length;
+    showSearchMatch();
+  });
+
+  searchNext.addEventListener("click", () => {
+    if (searchMatches.length === 0) return;
+    searchIndex = (searchIndex + 1) % searchMatches.length;
+    showSearchMatch();
+  });
+
   // ---------- Touch handling: swipe-to-reply + long-press menu ----------
 
   let swipeState = null; // { row, wrap, startX, startY, dragging, triggered, id }
@@ -524,6 +634,12 @@
   messageList.addEventListener("touchcancel", endSwipe);
 
   messageList.addEventListener("click", (e) => {
+    const quote = e.target.closest("[data-jump-to]");
+    if (quote) {
+      jumpToMessage(quote.dataset.jumpTo);
+      return;
+    }
+
     const img = e.target.closest("[data-lightbox]");
     if (img) {
       openLightbox(img.src);
@@ -574,8 +690,11 @@
     if (target) target.innerHTML = reactionsHtml(id, reactions);
   }
 
+  const lightboxDownload = document.getElementById("lightbox-download");
+
   function openLightbox(src) {
     lightboxImg.src = src;
+    if (lightboxDownload) lightboxDownload.href = src;
     lightbox.classList.remove("hidden");
   }
 
@@ -584,7 +703,10 @@
     lightboxImg.src = "";
   }
 
-  lightbox.addEventListener("click", closeLightbox);
+  lightbox.addEventListener("click", (e) => {
+    if (e.target.closest("#lightbox-download")) return; // let the download link work
+    closeLightbox();
+  });
 
   function updatePresence(names) {
     if (!names || names.length === 0) {
@@ -658,6 +780,7 @@
 
   function connect(name) {
     socket = io({ reconnectionAttempts: Infinity });
+    connectionDot.classList.add("connecting");
 
     // Render's free tier can take 30-50s to wake up from sleep, so cycle
     // the loading message through a few lines instead of sitting frozen.
@@ -695,8 +818,8 @@
       if (loadingText) loadingText.textContent = "Connected!";
       setTimeout(hideLoadingScreen, 500);
 
+      connectionDot.classList.remove("connecting", "offline");
       connectionDot.classList.add("online");
-      connectionDot.classList.remove("offline");
       socket.emit("join", name, (res) => {
         myName = res.name;
         messageList.innerHTML = "";
@@ -721,6 +844,11 @@
       connectionDot.classList.remove("online");
       connectionDot.classList.add("offline");
       presenceLine.textContent = "reconnecting…";
+    });
+
+    socket.io.on("reconnect_attempt", () => {
+      connectionDot.classList.remove("offline");
+      connectionDot.classList.add("connecting");
     });
 
     socket.on("message", (msg) => {

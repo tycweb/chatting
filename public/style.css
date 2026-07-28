@@ -15,6 +15,11 @@
   --radius-sm: 10px;
   --font-display: 'Space Grotesk', sans-serif;
   --font-body: 'Inter', sans-serif;
+  --accent-1: #7dd3fc;
+  --accent-2: #a78bfa;
+  --online: #34d399;
+  --connecting: #fbbf24;
+  --offline: #f87171;
 }
 
 * { box-sizing: border-box; }
@@ -76,7 +81,7 @@ html, body {
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: var(--white);
+  background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
   color: var(--black-0);
   display: flex;
   align-items: center;
@@ -85,6 +90,7 @@ html, body {
   font-weight: 700;
   font-size: 18px;
   flex-shrink: 0;
+  box-shadow: 0 4px 16px rgba(167, 139, 250, 0.25);
 }
 
 .brand-mark.small { width: 34px; height: 34px; font-size: 15px; border-radius: 10px; }
@@ -218,8 +224,14 @@ html, body {
 
 .icon-btn:hover { opacity: 1; }
 
-.connection-dot.online { background: var(--white); box-shadow: 0 0 0 3px rgba(255,255,255,0.12); }
-.connection-dot.offline { background: var(--gray-3); }
+.connection-dot.online { background: var(--online); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18); }
+.connection-dot.offline { background: var(--offline); --dot-glow: rgba(248, 113, 113, 0.45); animation: dotPulse 1.2s ease-in-out infinite; }
+.connection-dot.connecting { background: var(--connecting); --dot-glow: rgba(251, 191, 36, 0.45); animation: dotPulse 1.2s ease-in-out infinite; }
+
+@keyframes dotPulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--dot-glow); opacity: 1; }
+  50% { box-shadow: 0 0 0 4px transparent; opacity: 0.55; }
+}
 
 .message-list {
   flex: 1;
@@ -534,6 +546,25 @@ html, body {
   max-height: 100%;
   border-radius: 8px;
 }
+
+.lightbox-download {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--white);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.lightbox-download:hover { background: rgba(255, 255, 255, 0.22); }
 
 /* ---------- Bounce / press feedback ---------- */
 
@@ -850,7 +881,69 @@ html, body {
   margin-bottom: 6px;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: background 0.15s ease;
 }
+
+.reply-quote:active {
+  background: rgba(0, 0, 0, 0.14);
+}
+
+/* Flash used to draw the eye to a message jumped to via a reply tap or search */
+.jump-flash {
+  animation: jumpFlash 1s ease-out;
+}
+
+@keyframes jumpFlash {
+  0% { background: rgba(167, 139, 250, 0.22); border-radius: var(--radius-md); }
+  100% { background: transparent; }
+}
+
+/* ---------- Search bar ---------- */
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--black-1);
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--gray-1);
+}
+
+.search-bar.hidden { display: none; }
+
+.search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--white);
+  font-family: var(--font-body);
+  font-size: 14px;
+  min-width: 0;
+}
+
+.search-input::placeholder { color: var(--gray-2); }
+
+.search-count {
+  font-size: 12px;
+  color: var(--gray-2);
+  white-space: nowrap;
+}
+
+.search-nav-btn {
+  background: none;
+  border: none;
+  color: var(--gray-1);
+  font-size: 13px;
+  padding: 4px 6px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.search-nav-btn:hover { color: var(--white); }
+.search-close { font-size: 12px; }
 
 .reply-quote-name {
   font-size: 12px;
