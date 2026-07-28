@@ -21,6 +21,7 @@
   const jumpCount = document.getElementById("jump-count");
   const jumpLabel = document.getElementById("jump-label");
   const soundToggle = document.getElementById("sound-toggle");
+  const chatHeader = document.querySelector(".chat-header");
 
   // Search UI
   const searchBtn = document.getElementById("search-btn");
@@ -57,6 +58,14 @@
   const LONG_PRESS_MOVE_CANCEL = 12;
 
   let unreadCount = 0;
+  const baseTitle = document.title;
+  let unreadTitleCount = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      unreadTitleCount = 0;
+      document.title = baseTitle;
+    }
+  });
   let soundEnabled = true;
   let audioCtx = null;
   let lastTap = { id: null, time: 0 };
@@ -324,6 +333,7 @@
       if (scrollRaf) return;
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = null;
+        chatHeader.classList.toggle("scrolled", messageList.scrollTop > 4);
         if (isNearBottom()) {
           if (unreadCount === 0) hideJumpPill();
         } else if (unreadCount === 0) {
@@ -572,11 +582,13 @@
 
   searchBtn.addEventListener("click", () => {
     searchBar.classList.remove("hidden");
+    searchBtn.classList.add("active");
     searchInput.focus();
   });
 
   searchClose.addEventListener("click", () => {
     searchBar.classList.add("hidden");
+    searchBtn.classList.remove("active");
     searchInput.value = "";
     searchMatches = [];
     searchIndex = -1;
@@ -926,7 +938,11 @@
 
       if (!isMe) {
         playPop(wasNearBottom ? 720 : 520);
-        if (document.hidden && navigator.vibrate) navigator.vibrate(20);
+        if (document.hidden) {
+          if (navigator.vibrate) navigator.vibrate(20);
+          unreadTitleCount += 1;
+          document.title = `(${unreadTitleCount}) ${baseTitle}`;
+        }
       }
     });
 

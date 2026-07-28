@@ -169,6 +169,13 @@ html, body {
   border-bottom: 1px solid var(--line-soft);
   background: var(--black-1);
   flex-shrink: 0;
+  position: relative;
+  z-index: 5;
+  transition: box-shadow 0.2s ease;
+}
+
+.chat-header.scrolled {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
 }
 
 .header-left {
@@ -215,14 +222,18 @@ html, body {
 .icon-btn {
   background: transparent;
   border: none;
+  color: var(--white);
   font-size: 16px;
   cursor: pointer;
   line-height: 1;
-  padding: 4px;
+  padding: 6px;
+  border-radius: 10px;
   opacity: 0.85;
+  transition: opacity 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
 
-.icon-btn:hover { opacity: 1; }
+.icon-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
+.icon-btn.active { opacity: 1; color: var(--accent-1); background: rgba(125, 211, 252, 0.14); }
 
 .connection-dot.online { background: var(--online); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18); }
 .connection-dot.offline { background: var(--offline); --dot-glow: rgba(248, 113, 113, 0.45); animation: dotPulse 1.2s ease-in-out infinite; }
@@ -950,23 +961,39 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
-  background: var(--black-3);
+  padding: 8px 14px;
+  background: var(--black-1);
   border-bottom: 1px solid rgba(167, 139, 250, 0.25);
   color: var(--accent-1);
+  animation: searchSlideIn 0.18s ease;
+}
+
+@keyframes searchSlideIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .search-bar.hidden { display: none; }
 
+.search-bar svg { flex-shrink: 0; }
+
 .search-input {
   flex: 1;
-  background: transparent;
-  border: none;
+  background: var(--black-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   outline: none;
   color: var(--white);
   font-family: var(--font-body);
   font-size: 14px;
   min-width: 0;
+  padding: 7px 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search-input:focus {
+  border-color: var(--accent-1);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.15);
 }
 
 .search-input::placeholder { color: var(--gray-1); }
