@@ -71,6 +71,13 @@
   let replyTarget = null; // { id, name, text, image }
   let editingId = null;
 
+  const NAME_COLORS = ["#7dd3fc", "#a78bfa", "#f472b6", "#fb923c", "#34d399", "#facc15", "#60a5fa", "#f87171"];
+  function colorForName(name) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    return NAME_COLORS[hash % NAME_COLORS.length];
+  }
+
   function fmtTime(ts) {
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -184,7 +191,7 @@
 
     if (msg.deleted) {
       return `
-        ${!isMe ? `<p class="msg-name">${escapeHtml(msg.name)}</p>` : ""}
+        ${!isMe ? `<p class="msg-name" style="color:${colorForName(msg.name)}">${escapeHtml(msg.name)}</p>` : ""}
         <div class="msg-bubble-wrap">
           <div class="msg-bubble msg-bubble-deleted">
             <span>🚫 This message was deleted</span>
@@ -215,7 +222,7 @@
     const editedTag = msg.edited ? `<span class="edited-tag">edited</span>` : "";
 
     return `
-      ${!isMe ? `<p class="msg-name">${escapeHtml(msg.name)}</p>` : ""}
+      ${!isMe ? `<p class="msg-name" style="color:${colorForName(msg.name)}">${escapeHtml(msg.name)}</p>` : ""}
       <div class="msg-bubble-wrap">
         <div class="${bubbleClasses.join(" ")}" data-toggle-picker="${msg.id}">
           ${replyQuoteHtml(msg.replyTo)}
