@@ -19,6 +19,7 @@
   const lightboxImg = document.getElementById("lightbox-img");
   const jumpPill = document.getElementById("jump-pill");
   const jumpCount = document.getElementById("jump-count");
+  const jumpLabel = document.getElementById("jump-label");
   const soundToggle = document.getElementById("sound-toggle");
 
   // Search UI
@@ -103,6 +104,33 @@
     messageList.appendChild(el);
     scrollToBottom();
     return el;
+  }
+
+  // Like renderStatus, but includes a slim animated progress bar under the
+  // label — used for video compression, where a bare percentage in text
+  // was easy to miss.
+  function renderProgressStatus(text) {
+    const el = document.createElement("div");
+    el.className = "system-line system-line-progress";
+    const label = document.createElement("span");
+    label.textContent = text;
+    const track = document.createElement("div");
+    track.className = "progress-track";
+    const bar = document.createElement("div");
+    bar.className = "progress-bar";
+    track.appendChild(bar);
+    el.appendChild(label);
+    el.appendChild(track);
+    messageList.appendChild(el);
+    scrollToBottom();
+    return {
+      el,
+      setText: (t) => { label.textContent = t; },
+      setProgress: (p) => {
+        bar.style.width = `${Math.round(Math.min(Math.max(p, 0), 1) * 100)}%`;
+      },
+      remove: () => el.remove(),
+    };
   }
 
   function reactionsHtml(id, reactions) {
@@ -264,7 +292,8 @@
   }
 
   function showJumpPill() {
-    jumpCount.textContent = unreadCount;
+    jumpCount.textContent = unreadCount > 0 ? unreadCount : "";
+    jumpLabel.textContent = unreadCount > 0 ? "New messages" : "Back to bottom";
     jumpPill.classList.remove("hidden");
   }
 
@@ -277,6 +306,28 @@
     scrollToBottom();
     hideJumpPill();
   });
+
+  // Surface the pill any time the user has scrolled away from the bottom,
+  // even with no new messages — it's easy to get stranded mid-history
+  // after jumping to a reply or a search result.
+  let scrollRaf = null;
+  messageList.addEventListener(
+    "scroll",
+    () => {
+      if (scrollRaf) return;
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = null;
+        if (isNearBottom()) {
+          if (unreadCount === 0) hideJumpPill();
+        } else if (unreadCount === 0) {
+          jumpCount.textContent = "";
+          jumpLabel.textContent = "Back to bottom";
+          jumpPill.classList.remove("hidden");
+        }
+      });
+    },
+    { passive: true }
+  );
 
   function playPop(freq) {
     if (!soundEnabled) return;
@@ -1204,16 +1255,18 @@
 
     const needsCompression = file.size > VIDEO_COMPRESS_THRESHOLD_BYTES;
     attachBtn.disabled = true;
-    const statusEl = renderStatus(needsCompression ? "Compressing video… 0%" : "Sending video…");
+    const status = renderProgressStatus(needsCompression ? "Compressing video… 0%" : "Sending video…");
+    if (!needsCompression) status.setProgress(1);
     await nextPaint(); // make sure the status line actually shows before we start work
     const minVisible = wait(500);
     try {
       let outFile = file;
       if (needsCompression) {
         outFile = await compressVideo(file, VIDEO_TARGET_COMPRESSED_BYTES, (progress) => {
-          statusEl.textContent = `Compressing video… ${Math.round(progress * 100)}%`;
+          status.setText(`Compressing video… ${Math.round(progress * 100)}%`);
+          status.setProgress(progress);
         });
-        statusEl.textContent = "Sending video…";
+        status.setText("Sending video…");
       }
       const dataUrl = await readFileAsDataUrl(outFile);
       const payload = { video: dataUrl };
@@ -1232,7 +1285,7 @@
       );
     } finally {
       attachBtn.disabled = false;
-      statusEl.remove();
+      status.remove();
     }
   }
 
