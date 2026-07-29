@@ -34,8 +34,10 @@
         <div class="brand-mark">T</div>
         <h1>Tycept</h1>
       </div>
-      <p class="join-sub">Enter a name to join the room.</p>
+      <p class="join-sub">Enter a name and password to join.</p>
       <input id="name-input" class="name-input" maxlength="24" placeholder="Your name" autocomplete="off" />
+      <input id="password-input" class="name-input" type="password" maxlength="64" placeholder="Password" autocomplete="off" />
+      <p class="join-hint">First time with this name? That password is now yours — enter the same one next time to log back in as you.</p>
       <button id="join-btn" class="btn-primary">Join chat</button>
       <p id="join-error" class="join-error"></p>
     </div>
@@ -75,6 +77,7 @@
 
       <div id="message-mode" class="new-chat-mode">
         <input id="member-search" class="name-input new-chat-input" placeholder="Search people…" autocomplete="off" />
+        <p class="new-chat-hint">Offline friends still show up here — start the chat and they'll see it (and get notified) once they're back.</p>
         <div id="member-list" class="member-list"></div>
         <input id="group-name-input" class="name-input new-chat-input hidden" maxlength="40" placeholder="Name this group (optional)" autocomplete="off" />
         <button id="start-chat-btn" class="btn-primary" disabled>Start chat</button>

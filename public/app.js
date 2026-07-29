@@ -5,6 +5,7 @@
   const conversationsScreen = document.getElementById("conversations-screen");
   const chatScreen = document.getElementById("chat-screen");
   const nameInput = document.getElementById("name-input");
+  const passwordInput = document.getElementById("password-input");
   const joinBtn = document.getElementById("join-btn");
   const joinError = document.getElementById("join-error");
   const messageList = document.getElementById("message-list");
@@ -191,9 +192,10 @@
     const list = sortedConversations();
     conversationList.innerHTML = "";
     convEmptyState.classList.toggle("hidden", list.length > 0);
-    list.forEach((conv) => {
+    list.forEach((conv, i) => {
       const item = document.createElement("div");
       item.className = `conv-item${conv.unread ? " unread" : ""}`;
+      item.style.setProperty("--row-i", Math.min(i, 10));
       item.dataset.id = conv.id;
       const time = conv.lastMessage ? fmtListTime(conv.lastMessage.time) : "";
       item.innerHTML = `
@@ -328,13 +330,19 @@
       memberListEl.innerHTML = `<p class="member-list-empty">No one else here yet — share the link with a friend.</p>`;
       return;
     }
-    names.forEach((n) => {
+    names.forEach((n, i) => {
       const row = document.createElement("div");
       row.className = `member-row${selectedMembers.has(n) ? " selected" : ""}`;
+      row.style.setProperty("--row-i", Math.min(i, 10));
       const initial = n.trim().charAt(0).toUpperCase() || "?";
+      const isOnline = onlineNames.includes(n);
       row.innerHTML = `
-        <div class="conv-avatar" style="background:${colorForName(n)}">${escapeHtml(initial)}</div>
+        <div class="member-row-avatar-wrap">
+          <div class="conv-avatar" style="background:${colorForName(n)}">${escapeHtml(initial)}</div>
+          <span class="member-status-dot ${isOnline ? "online" : "offline"}"></span>
+        </div>
         <span class="member-row-name">${escapeHtml(n)}</span>
+        <span class="member-row-status">${isOnline ? "online" : "offline"}</span>
         <span class="member-checkbox"></span>
       `;
       row.addEventListener("click", () => {
@@ -1200,7 +1208,23 @@
     }
   }
 
-  function connect(name) {
+  function showJoinError(message) {
+    localStorage.removeItem("chatName");
+    localStorage.removeItem("chatPassword");
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+    hideLoadingScreen();
+    joinScreen.classList.remove("hidden");
+    joinError.textContent = message;
+    if (passwordInput) {
+      passwordInput.value = "";
+      passwordInput.focus();
+    }
+  }
+
+  function connect(name, password) {
     socket = io({ reconnectionAttempts: Infinity });
     connectionDot.classList.add("connecting");
 
@@ -1242,7 +1266,17 @@
 
       connectionDot.classList.remove("connecting", "offline");
       connectionDot.classList.add("online");
-      socket.emit("join", name, (res) => {
+      socket.emit("join", { name, password }, (res) => {
+        if (!res || res.error) {
+          const message =
+            res && res.error === "wrong-password"
+              ? "Wrong password for that name."
+              : res && res.error === "password-required"
+              ? `Password needs to be at least ${res.minLength || 4} characters.`
+              : "Couldn't join. Try again.";
+          showJoinError(message);
+          return;
+        }
         myName = res.name;
         directory = res.directory || [];
         conversationsMeta.clear();
@@ -1781,30 +1815,44 @@
 
   function doJoin() {
     const name = nameInput.value.trim();
+    const password = passwordInput ? passwordInput.value : "";
     if (!name) {
       joinError.textContent = "Enter a name to continue.";
       return;
     }
+    if (password.length < 4) {
+      joinError.textContent = "Password needs to be at least 4 characters.";
+      return;
+    }
 
+    joinError.textContent = "";
     localStorage.setItem("chatName", name);
+    localStorage.setItem("chatPassword", password);
 
     joinScreen.classList.add("hidden");
-    connect(name);
+    connect(name, password);
   }
 
   joinBtn.addEventListener("click", doJoin);
   nameInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") doJoin();
+    if (e.key === "Enter") passwordInput && passwordInput.focus();
   });
+  passwordInput &&
+    passwordInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doJoin();
+    });
 
   const savedName = localStorage.getItem("chatName");
+  const savedPassword = localStorage.getItem("chatPassword");
 
-  if (savedName) {
+  if (savedName && savedPassword) {
     nameInput.value = savedName;
+    if (passwordInput) passwordInput.value = savedPassword;
     joinScreen.classList.add("hidden");
-    connect(savedName);
+    connect(savedName, savedPassword);
   } else {
-    nameInput.focus();
+    if (savedName) nameInput.value = savedName;
+    (passwordInput || nameInput).focus();
     // Let the loading screen actually paint and show briefly on fresh visits,
     // instead of hiding it in the same tick (which skipped it entirely).
     setTimeout(hideLoadingScreen, 900);

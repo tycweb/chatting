@@ -155,6 +155,13 @@ html, body {
   margin: 0;
 }
 
+.join-hint {
+  color: var(--gray-2);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: -6px 0 0;
+}
+
 /* ---------- Chat screen ---------- */
 
 .chat-screen {
@@ -1564,9 +1571,36 @@ html, body {
   font-size: 14px;
 }
 
+.member-row-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.member-status-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--black-1);
+  box-sizing: content-box;
+}
+
+.member-status-dot.online { background: var(--online); }
+.member-status-dot.offline { background: var(--gray-3); }
+
 .member-row-name {
   flex: 1;
   font-size: 14.5px;
+}
+
+.member-row-status {
+  color: var(--gray-2);
+  font-size: 11.5px;
+  flex-shrink: 0;
+  margin-right: 2px;
 }
 
 .member-checkbox {
@@ -1597,4 +1631,112 @@ html, body {
   color: var(--gray-2);
   font-size: 13px;
   padding: 10px 6px;
+}
+
+/* ---------- Global micro-interactions ---------- */
+/* Every tappable control gets a quick, consistent "press" so the UI feels
+   alive — buttons, list rows, tabs, and cards all squash slightly on tap. */
+
+.icon-btn,
+.btn-primary,
+.exit-btn,
+.new-chat-tab,
+.new-chat-close,
+.search-nav-btn,
+.attach-btn,
+.lightbox-download,
+.conversation-list .conv-item,
+.member-row,
+#jump-pill {
+  transition: transform 0.14s cubic-bezier(.34, 1.56, .64, 1), background 0.15s ease,
+    opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.icon-btn:active,
+.exit-btn:active,
+.new-chat-close:active,
+.search-nav-btn:active,
+.attach-btn:active,
+.lightbox-download:active {
+  transform: scale(0.86);
+}
+
+.new-chat-tab:active { transform: scale(0.95); }
+
+.conversation-list .conv-item:active {
+  transform: scale(0.98);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.member-row:active { transform: scale(0.97); }
+
+#jump-pill:active { transform: translateX(-50%) scale(0.94); }
+
+/* ---------- Modal / overlay entrances ---------- */
+
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes sheetSlideUp {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cardPopIn {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.new-chat-modal:not(.hidden) {
+  animation: overlayFadeIn 0.18s ease;
+}
+
+.new-chat-modal:not(.hidden) .new-chat-card {
+  animation: sheetSlideUp 0.26s cubic-bezier(.22, 1, .36, 1) backwards;
+}
+
+.exit-modal:not(.hidden) {
+  animation: overlayFadeIn 0.16s ease;
+}
+
+.exit-modal:not(.hidden) .exit-modal-card {
+  animation: cardPopIn 0.24s cubic-bezier(.34, 1.56, .64, 1) backwards;
+}
+
+.lightbox:not(.hidden) {
+  animation: overlayFadeIn 0.16s ease;
+}
+
+.lightbox:not(.hidden) img {
+  animation: cardPopIn 0.22s cubic-bezier(.34, 1.56, .64, 1) backwards;
+}
+
+/* Conversation rows and member rows count in as a light stagger so a
+   freshly opened list doesn't just snap into place. */
+.conversation-list .conv-item {
+  animation: bubbleRise 0.22s cubic-bezier(.34, 1.56, .64, 1) backwards;
+  animation-delay: calc(var(--row-i, 0) * 28ms);
+}
+
+.member-list .member-row {
+  animation: bubbleRise 0.2s cubic-bezier(.34, 1.56, .64, 1) backwards;
+  animation-delay: calc(var(--row-i, 0) * 22ms);
+}
+
+/* Screens themselves fade in on switch rather than hard-cutting. */
+.conversations-screen:not(.hidden),
+.chat-screen:not(.hidden) {
+  animation: overlayFadeIn 0.16s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn, .btn-primary, .exit-btn, .new-chat-tab, .new-chat-close,
+  .search-nav-btn, .attach-btn, .lightbox-download, .conversation-list .conv-item,
+  .member-row, #jump-pill, .new-chat-modal, .new-chat-card, .exit-modal,
+  .exit-modal-card, .lightbox, .lightbox img, .conversations-screen, .chat-screen {
+    animation: none !important;
+    transition: none !important;
+  }
 }
