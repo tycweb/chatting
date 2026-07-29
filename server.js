@@ -13,69 +13,98 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const MAX_HISTORY = 200;
-const MAX_FULL_VIDEOS = 8; // 8 * MAX_VIDEO_BYTES (27MB) ≈ 216MB — stays under
-// Upstash free tier's 256MB cap and well under Render free's 512MB RAM.
-// Applied live (not just at save time) so the process itself never holds
-// more than this many full videos in memory, regardless of restarts.
+const MAX_HISTORY = 200; // per conversation
+const MAX_FULL_VIDEOS = 8; // per conversation
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_NAME_LENGTH = 24;
+const MAX_CONV_NAME_LENGTH = 40;
+const MAX_GROUP_MEMBERS = 30;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded ceiling for a single photo
 const MAX_VIDEO_BYTES = 27 * 1024 * 1024; // ~20MB video, base64-encoded (adds ~33%)
 
-// In-memory state — this stays the "live" working copy so edit/delete/react
-// lookups are instant. It's mirrored to Redis so it survives restarts.
-const history = [];
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+// conversations: id -> { id, type: 'room'|'dm'|'group', name, members: [name],
+//                         history: [msg], createdAt }
+// 'room' conversations are public (members is [] and means "everyone").
+// 'dm'/'group' conversations are private to their members list.
+const conversations = new Map();
+const knownUsers = new Set(); // every name that has ever joined — the "directory"
 const onlineUsers = new Map(); // socket.id -> name
+const socketsByName = new Map(); // name -> Set(socket.id)
 
-// --- Redis (persists chat history across restarts / cold starts) ---
+function ensureDefaultRoom() {
+  if (!conversations.has("general")) {
+    conversations.set("general", {
+      id: "general",
+      type: "room",
+      name: "General",
+      members: [],
+      history: [],
+      createdAt: Date.now(),
+    });
+  }
+}
+
+// --- Redis (persists chat state across restarts / cold starts) ---
 const REDIS_URL = process.env.REDIS_URL;
-const HISTORY_KEY = "tycept:history";
+const STATE_KEY = "tycept:state:v2";
 let redisClient = null;
 
 if (REDIS_URL) {
   redisClient = createClient({ url: REDIS_URL });
   redisClient.on("error", (err) => console.error("Redis error:", err.message));
 } else {
-  console.warn("REDIS_URL not set — chat history will NOT persist across restarts.");
+  console.warn("REDIS_URL not set — chat state will NOT persist across restarts.");
 }
 
-async function loadHistoryFromRedis() {
+async function loadStateFromRedis() {
+  ensureDefaultRoom();
   if (!redisClient) return;
   try {
-    const raw = await redisClient.get(HISTORY_KEY);
+    const raw = await redisClient.get(STATE_KEY);
     if (raw) {
       const saved = JSON.parse(raw);
-      if (Array.isArray(saved)) history.push(...saved);
-      console.log(`Loaded ${history.length} messages from Redis.`);
+      if (Array.isArray(saved.conversations)) {
+        for (const conv of saved.conversations) {
+          if (conv && conv.id) conversations.set(conv.id, conv);
+        }
+      }
+      if (Array.isArray(saved.knownUsers)) {
+        for (const n of saved.knownUsers) knownUsers.add(n);
+      }
+      console.log(`Loaded ${conversations.size} conversations from Redis.`);
     }
   } catch (err) {
-    console.error("Failed to load history from Redis:", err.message);
+    console.error("Failed to load state from Redis:", err.message);
   }
+  ensureDefaultRoom();
 }
 
-function saveHistoryToRedis() {
+let saveTimer = null;
+function saveStateToRedis() {
   if (!redisClient) return;
-  // Videos are capped at MAX_FULL_VIDEOS before this ever runs (see
-  // trimOldVideos), so what we save here is already bounded.
-  redisClient
-    .set(HISTORY_KEY, JSON.stringify(history))
-    .catch((err) => console.error("Failed to save history to Redis:", err.message));
+  // Debounce: several edits/messages can land in the same tick.
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const payload = JSON.stringify({
+      conversations: Array.from(conversations.values()),
+      knownUsers: Array.from(knownUsers),
+    });
+    redisClient.set(STATE_KEY, payload).catch((err) =>
+      console.error("Failed to save state to Redis:", err.message)
+    );
+  }, 250);
 }
 
 // --- Push notifications setup ---
-// Generate once with: npx web-push generate-vapid-keys
-// Set these as environment variables in production (Render dashboard -> Environment)
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "YOUR_VAPID_PUBLIC_KEY";
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "YOUR_VAPID_PRIVATE_KEY";
 
-webpush.setVapidDetails(
-  "mailto:you@example.com",
-  VAPID_PUBLIC_KEY,
-  VAPID_PRIVATE_KEY
-);
+webpush.setVapidDetails("mailto:you@example.com", VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
-// name -> array of push subscriptions (in-memory; resets on restart, same as history)
+// name -> array of push subscriptions (in-memory; resets on restart, same as before)
 const pushSubscriptions = new Map();
 
 app.use(express.json({ limit: "1mb" }));
@@ -97,23 +126,23 @@ app.post("/api/subscribe", (req, res) => {
   res.status(201).json({});
 });
 
-// Notify everyone except the sender that a new message arrived.
-async function notifyNewMessage(msg) {
+// Notify a specific set of names (minus the sender) that a new message arrived.
+async function notifyNewMessage(msg, conv) {
   const body = msg.video ? "🎥 Sent a video" : msg.image ? "📷 Sent a photo" : msg.text;
-  const payload = JSON.stringify({
-    title: `${msg.name} in Tycept`,
-    body,
-    url: "/",
-  });
+  const title = conv.type === "room" ? `${msg.name} in #${conv.name}` : `${msg.name}`;
+  const payload = JSON.stringify({ title, body, url: "/" });
 
-  for (const [name, subs] of pushSubscriptions.entries()) {
+  const recipients =
+    conv.type === "room" ? Array.from(pushSubscriptions.keys()) : conv.members;
+
+  for (const name of recipients) {
     if (name === msg.name) continue; // don't notify the sender
+    const subs = pushSubscriptions.get(name) || [];
     for (const sub of subs) {
       try {
         await webpush.sendNotification(sub, payload);
       } catch (err) {
         if (err.statusCode === 410 || err.statusCode === 404) {
-          // subscription expired/gone — drop it
           const remaining = (pushSubscriptions.get(name) || []).filter(
             (s) => s.endpoint !== sub.endpoint
           );
@@ -136,10 +165,19 @@ function broadcastPresence() {
   io.emit("presence", Array.from(onlineUsers.values()));
 }
 
-function buildReplySnapshot(rawReplyTo) {
+function broadcastDirectory() {
+  io.emit("directory", Array.from(knownUsers));
+}
+
+function isMember(conv, name) {
+  if (!conv) return false;
+  return conv.type === "room" || conv.members.includes(name);
+}
+
+function buildReplySnapshot(conv, rawReplyTo) {
   if (!rawReplyTo || typeof rawReplyTo !== "object") return null;
-  const original = history.find((m) => m.id === rawReplyTo.id);
-  if (!original) return null; // ignore replies pointing at messages we don't have
+  const original = conv.history.find((m) => m.id === rawReplyTo.id);
+  if (!original) return null;
   return {
     id: original.id,
     name: original.name,
@@ -149,12 +187,9 @@ function buildReplySnapshot(rawReplyTo) {
   };
 }
 
-// Keeps at most MAX_FULL_VIDEOS videos with actual data in memory at once.
-// Doesn't touch clients who already have a video rendered in their DOM —
-// only affects the server's own copy (what gets sent to new joiners and
-// what gets persisted to Redis on the next save).
-function trimOldVideos() {
-  const videoMsgs = history.filter((m) => m.video);
+// Keeps at most MAX_FULL_VIDEOS videos with actual data in memory per conversation.
+function trimOldVideos(conv) {
+  const videoMsgs = conv.history.filter((m) => m.video);
   const excess = videoMsgs.length - MAX_FULL_VIDEOS;
   for (let i = 0; i < excess; i++) {
     videoMsgs[i].video = null;
@@ -162,73 +197,238 @@ function trimOldVideos() {
   }
 }
 
+function conversationTitle(conv) {
+  if (conv.type === "room") return conv.name || "Room";
+  if (conv.name) return conv.name; // explicit group name
+  return ""; // dm / unnamed group — client fills in from members + myName
+}
+
+function summarize(conv) {
+  const last = conv.history[conv.history.length - 1];
+  return {
+    id: conv.id,
+    type: conv.type,
+    name: conversationTitle(conv),
+    members: conv.members,
+    createdAt: conv.createdAt,
+    lastMessage: last
+      ? {
+          name: last.name,
+          text: last.deleted ? "" : last.text,
+          image: !last.deleted && !!last.image,
+          video: !last.deleted && !!last.video,
+          deleted: !!last.deleted,
+          time: last.time,
+        }
+      : null,
+  };
+}
+
+function conversationsForUser(name) {
+  const list = [];
+  for (const conv of conversations.values()) {
+    if (isMember(conv, name)) list.push(summarize(conv));
+  }
+  return list;
+}
+
+function joinAllRoomsFor(socket, name) {
+  for (const conv of conversations.values()) {
+    if (isMember(conv, name)) socket.join(conv.id);
+  }
+}
+
+function findExistingDm(members) {
+  const key = [...members].sort().join("|");
+  for (const conv of conversations.values()) {
+    if (conv.type === "dm" && [...conv.members].sort().join("|") === key) {
+      return conv;
+    }
+  }
+  return null;
+}
+
 io.on("connection", (socket) => {
   socket.on("join", (rawName, ack) => {
-    const name = sanitize(rawName).slice(0, MAX_NAME_LENGTH) || `Guest${Math.floor(Math.random() * 1000)}`;
+    const name =
+      sanitize(rawName).slice(0, MAX_NAME_LENGTH) || `Guest${Math.floor(Math.random() * 1000)}`;
     socket.data.name = name;
     onlineUsers.set(socket.id, name);
 
-    if (typeof ack === "function") ack({ name, history });
+    const set = socketsByName.get(name) || new Set();
+    set.add(socket.id);
+    socketsByName.set(name, set);
 
-    socket.broadcast.emit("system", { text: `${name} joined the chat`, time: Date.now() });
+    const isNewUser = !knownUsers.has(name);
+    knownUsers.add(name);
+
+    joinAllRoomsFor(socket, name);
+
+    if (typeof ack === "function") {
+      ack({
+        name,
+        conversations: conversationsForUser(name),
+        directory: Array.from(knownUsers).filter((n) => n !== name),
+      });
+    }
+
     broadcastPresence();
+    if (isNewUser) {
+      broadcastDirectory();
+      saveStateToRedis();
+    }
+  });
+
+  socket.on("get-directory", (ack) => {
+    const name = socket.data.name;
+    if (typeof ack === "function") {
+      ack(Array.from(knownUsers).filter((n) => n !== name));
+    }
+  });
+
+  socket.on("open-conversation", ({ id } = {}, ack) => {
+    const name = socket.data.name;
+    const conv = conversations.get(id);
+    if (typeof ack !== "function") return;
+    if (!name || !conv || !isMember(conv, name)) {
+      ack({ error: "not-found" });
+      return;
+    }
+    socket.join(conv.id);
+    ack({
+      id: conv.id,
+      type: conv.type,
+      name: conversationTitle(conv),
+      members: conv.members,
+      history: conv.history,
+    });
+  });
+
+  socket.on("create-conversation", (payload = {}, ack) => {
+    const name = socket.data.name;
+    if (!name) return;
+    const type = payload.type === "room" ? "room" : payload.type === "group" ? "group" : "dm";
+    const reply = (result) => {
+      if (typeof ack === "function") ack(result);
+    };
+
+    if (type === "room") {
+      const cleanName = sanitize(payload.name).slice(0, MAX_CONV_NAME_LENGTH);
+      if (!cleanName) return reply({ error: "name-required" });
+      const id = `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const conv = { id, type: "room", name: cleanName, members: [], history: [], createdAt: Date.now() };
+      conversations.set(id, conv);
+      // Every currently-connected socket can see public rooms.
+      for (const [, s] of io.sockets.sockets) s.join(id);
+      io.emit("conversation-created", summarize(conv));
+      saveStateToRedis();
+      return reply(summarize(conv));
+    }
+
+    // dm / group
+    let members = Array.isArray(payload.members) ? payload.members : [];
+    members = members.map((m) => sanitize(m).slice(0, MAX_NAME_LENGTH)).filter(Boolean);
+    members = Array.from(new Set([...members, name]));
+    members = members.filter((m) => knownUsers.has(m));
+    if (members.length < 2) return reply({ error: "need-members" });
+    if (members.length > MAX_GROUP_MEMBERS) return reply({ error: "too-many-members" });
+
+    const resolvedType = members.length === 2 ? "dm" : "group";
+
+    if (resolvedType === "dm") {
+      const existing = findExistingDm(members);
+      if (existing) return reply(summarize(existing));
+    }
+
+    const cleanName =
+      resolvedType === "group" ? sanitize(payload.name).slice(0, MAX_CONV_NAME_LENGTH) : "";
+
+    const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const conv = {
+      id,
+      type: resolvedType,
+      name: cleanName,
+      members,
+      history: [],
+      createdAt: Date.now(),
+    };
+    conversations.set(id, conv);
+
+    for (const m of members) {
+      const set = socketsByName.get(m);
+      if (!set) continue;
+      for (const sid of set) {
+        const s = io.sockets.sockets.get(sid);
+        if (s) s.join(id);
+      }
+    }
+
+    io.to(id).emit("conversation-created", summarize(conv));
+    saveStateToRedis();
+    reply(summarize(conv));
   });
 
   socket.on("message", (payload) => {
     const name = socket.data.name;
-    if (!name) return; // must join first
+    if (!name) return;
 
-    const rawText = typeof payload === "string" ? payload : payload && payload.text;
-    const rawImage = payload && typeof payload === "object" ? payload.image : null;
-    const rawVideo = payload && typeof payload === "object" ? payload.video : null;
-    const rawReplyTo = payload && typeof payload === "object" ? payload.replyTo : null;
+    const conversationId = payload && payload.conversationId;
+    const conv = conversations.get(conversationId);
+    if (!conv || !isMember(conv, name)) return;
+
+    const rawText = payload && payload.text;
+    const rawImage = payload && payload.image;
+    const rawVideo = payload && payload.video;
+    const rawReplyTo = payload && payload.replyTo;
 
     const clean = sanitize(rawText).slice(0, MAX_MESSAGE_LENGTH);
 
     let image = null;
     if (typeof rawImage === "string" && rawImage.startsWith("data:image/")) {
-      if (rawImage.length > MAX_IMAGE_BYTES) return; // reject oversized payloads
+      if (rawImage.length > MAX_IMAGE_BYTES) return;
       image = rawImage;
     }
 
     let video = null;
     if (typeof rawVideo === "string" && rawVideo.startsWith("data:video/")) {
-      if (rawVideo.length > MAX_VIDEO_BYTES) return; // reject oversized payloads
+      if (rawVideo.length > MAX_VIDEO_BYTES) return;
       video = rawVideo;
     }
 
-    if (!clean && !image && !video) return; // nothing to send
+    if (!clean && !image && !video) return;
 
     const msg = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      conversationId,
       name,
       text: clean,
       image,
       video,
       time: Date.now(),
-      reactions: {}, // emoji -> [names]
-      replyTo: buildReplySnapshot(rawReplyTo),
+      reactions: {},
+      replyTo: buildReplySnapshot(conv, rawReplyTo),
       edited: false,
       deleted: false,
     };
 
-    history.push(msg);
-    if (history.length > MAX_HISTORY) history.shift();
-    if (msg.video) trimOldVideos();
-    saveHistoryToRedis();
+    conv.history.push(msg);
+    if (conv.history.length > MAX_HISTORY) conv.history.shift();
+    if (msg.video) trimOldVideos(conv);
+    saveStateToRedis();
 
-    io.emit("message", msg);
-    notifyNewMessage(msg).catch((err) => console.error("notifyNewMessage error:", err));
+    io.to(conversationId).emit("message", msg);
+    notifyNewMessage(msg, conv).catch((err) => console.error("notifyNewMessage error:", err));
   });
 
-  socket.on("edit", ({ id, text } = {}) => {
+  socket.on("edit", ({ conversationId, id, text } = {}) => {
     const name = socket.data.name;
-    if (!name || !id) return;
+    const conv = conversations.get(conversationId);
+    if (!name || !id || !conv || !isMember(conv, name)) return;
 
-    const msg = history.find((m) => m.id === id);
+    const msg = conv.history.find((m) => m.id === id);
     if (!msg) return;
-    if (msg.name !== name) return; // can only edit your own messages
-    if (msg.image) return; // keep it simple: no editing photo messages
+    if (msg.name !== name) return;
+    if (msg.image) return;
     if (msg.deleted) return;
 
     const clean = sanitize(text).slice(0, MAX_MESSAGE_LENGTH);
@@ -236,39 +436,42 @@ io.on("connection", (socket) => {
 
     msg.text = clean;
     msg.edited = true;
-    saveHistoryToRedis();
+    saveStateToRedis();
 
-    io.emit("edited", { id, text: msg.text, edited: true });
+    io.to(conversationId).emit("edited", { conversationId, id, text: msg.text, edited: true });
   });
 
-  socket.on("delete", ({ id } = {}) => {
+  socket.on("delete", ({ conversationId, id } = {}) => {
     const name = socket.data.name;
-    if (!name || !id) return;
+    const conv = conversations.get(conversationId);
+    if (!name || !id || !conv || !isMember(conv, name)) return;
 
-    const msg = history.find((m) => m.id === id);
+    const msg = conv.history.find((m) => m.id === id);
     if (!msg) return;
-    if (msg.name !== name) return; // can only delete your own messages
+    if (msg.name !== name) return;
 
     msg.deleted = true;
     msg.text = "";
     msg.image = null;
     msg.video = null;
     msg.reactions = {};
-    saveHistoryToRedis();
+    saveStateToRedis();
 
-    io.emit("deleted", { id });
+    io.to(conversationId).emit("deleted", { conversationId, id });
   });
 
-  socket.on("typing", (isTyping) => {
+  socket.on("typing", ({ conversationId, isTyping } = {}) => {
     const name = socket.data.name;
-    if (!name) return;
-    socket.broadcast.emit("typing", { name, isTyping: !!isTyping });
+    const conv = conversations.get(conversationId);
+    if (!name || !conv || !isMember(conv, name)) return;
+    socket.to(conversationId).emit("typing", { conversationId, name, isTyping: !!isTyping });
   });
 
-  socket.on("react", ({ id, emoji }) => {
+  socket.on("react", ({ conversationId, id, emoji } = {}) => {
     const name = socket.data.name;
-    if (!name || !id || !emoji) return;
-    const msg = history.find((m) => m.id === id);
+    const conv = conversations.get(conversationId);
+    if (!name || !id || !emoji || !conv || !isMember(conv, name)) return;
+    const msg = conv.history.find((m) => m.id === id);
     if (!msg || msg.deleted) return;
 
     if (!msg.reactions[emoji]) msg.reactions[emoji] = [];
@@ -280,15 +483,19 @@ io.on("connection", (socket) => {
       if (msg.reactions[emoji].length === 0) delete msg.reactions[emoji];
     }
 
-    saveHistoryToRedis();
-    io.emit("reaction", { id, reactions: msg.reactions });
+    saveStateToRedis();
+    io.to(conversationId).emit("reaction", { conversationId, id, reactions: msg.reactions });
   });
 
   socket.on("disconnect", () => {
     const name = onlineUsers.get(socket.id);
     onlineUsers.delete(socket.id);
     if (name) {
-      socket.broadcast.emit("system", { text: `${name} left the chat`, time: Date.now() });
+      const set = socketsByName.get(name);
+      if (set) {
+        set.delete(socket.id);
+        if (set.size === 0) socketsByName.delete(name);
+      }
       broadcastPresence();
     }
   });
@@ -298,10 +505,13 @@ async function start() {
   if (redisClient) {
     try {
       await redisClient.connect();
-      await loadHistoryFromRedis();
+      await loadStateFromRedis();
     } catch (err) {
-      console.error("Could not connect to Redis, starting with empty history:", err.message);
+      console.error("Could not connect to Redis, starting with empty state:", err.message);
+      ensureDefaultRoom();
     }
+  } else {
+    ensureDefaultRoom();
   }
 
   server.listen(PORT, () => {
