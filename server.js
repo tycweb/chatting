@@ -70,8 +70,15 @@ function ensureDefaultRoom() {
 }
 
 // --- Redis (persists chat state across restarts / cold starts) ---
+// State used to live in ONE key holding the entire app (every conversation,
+// every image/video, as one JSON blob). That single write kept growing until
+// it blew past Upstash's max request size. Now each conversation is its own
+// key, so a write is only ever as big as that one conversation's history —
+// and small metadata (users/passwords/which conversations exist) is separate.
 const REDIS_URL = process.env.REDIS_URL;
-const STATE_KEY = "tycept:state:v2";
+const LEGACY_STATE_KEY = "tycept:state:v2"; // old single-blob format, read once for migration
+const META_KEY = "tycept:meta:v3";
+const CONV_KEY_PREFIX = "tycept:conv:v3:";
 let redisClient = null;
 
 if (REDIS_URL) {
@@ -81,53 +88,120 @@ if (REDIS_URL) {
   console.warn("REDIS_URL not set — chat state will NOT persist across restarts.");
 }
 
+async function saveMetaToRedisNow() {
+  if (!redisClient) return;
+  const payload = JSON.stringify({
+    knownUsers: Array.from(knownUsers),
+    passwords: Array.from(passwords.entries()).map(([name, rec]) => ({
+      name,
+      salt: rec.salt,
+      hash: rec.hash,
+    })),
+    conversationIds: Array.from(conversations.keys()),
+  });
+  try {
+    await redisClient.set(META_KEY, payload);
+  } catch (err) {
+    console.error("Failed to save meta to Redis:", err.message);
+  }
+}
+
+async function saveConversationToRedisNow(id) {
+  if (!redisClient) return;
+  const conv = conversations.get(id);
+  if (!conv) return;
+  try {
+    await redisClient.set(CONV_KEY_PREFIX + id, JSON.stringify(conv));
+  } catch (err) {
+    console.error(`Failed to save conversation "${id}" to Redis:`, err.message);
+  }
+}
+
+let metaSaveTimer = null;
+function saveMetaToRedis() {
+  if (!redisClient) return;
+  // Debounce: several changes can land in the same tick.
+  clearTimeout(metaSaveTimer);
+  metaSaveTimer = setTimeout(saveMetaToRedisNow, 250);
+}
+
+const convSaveTimers = new Map(); // conversationId -> timer
+function saveConversationToRedis(id) {
+  if (!redisClient) return;
+  clearTimeout(convSaveTimers.get(id));
+  convSaveTimers.set(
+    id,
+    setTimeout(() => saveConversationToRedisNow(id), 250)
+  );
+}
+
+async function migrateLegacyBlob() {
+  const legacyRaw = await redisClient.get(LEGACY_STATE_KEY);
+  if (!legacyRaw) return false;
+
+  const saved = JSON.parse(legacyRaw);
+  if (Array.isArray(saved.conversations)) {
+    for (const conv of saved.conversations) {
+      if (conv && conv.id) conversations.set(conv.id, conv);
+    }
+  }
+  if (Array.isArray(saved.knownUsers)) {
+    for (const n of saved.knownUsers) knownUsers.add(n);
+  }
+  if (Array.isArray(saved.passwords)) {
+    for (const p of saved.passwords) {
+      if (p && p.name && p.salt && p.hash) passwords.set(p.name, { salt: p.salt, hash: p.hash });
+    }
+  }
+
+  console.log(`Migrating ${conversations.size} conversation(s) from the old single-key format...`);
+  ensureDefaultRoom();
+  await saveMetaToRedisNow();
+  for (const id of conversations.keys()) await saveConversationToRedisNow(id);
+  await redisClient.del(LEGACY_STATE_KEY).catch((err) =>
+    console.error("Migrated data but couldn't remove the old key (harmless, just unused now):", err.message)
+  );
+  console.log("Migration to per-conversation Redis keys complete.");
+  return true;
+}
+
 async function loadStateFromRedis() {
   ensureDefaultRoom();
   if (!redisClient) return;
   try {
-    const raw = await redisClient.get(STATE_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw);
-      if (Array.isArray(saved.conversations)) {
-        for (const conv of saved.conversations) {
-          if (conv && conv.id) conversations.set(conv.id, conv);
-        }
+    const metaRaw = await redisClient.get(META_KEY);
+    if (metaRaw) {
+      const meta = JSON.parse(metaRaw);
+      if (Array.isArray(meta.knownUsers)) {
+        for (const n of meta.knownUsers) knownUsers.add(n);
       }
-      if (Array.isArray(saved.knownUsers)) {
-        for (const n of saved.knownUsers) knownUsers.add(n);
-      }
-      if (Array.isArray(saved.passwords)) {
-        for (const p of saved.passwords) {
+      if (Array.isArray(meta.passwords)) {
+        for (const p of meta.passwords) {
           if (p && p.name && p.salt && p.hash) passwords.set(p.name, { salt: p.salt, hash: p.hash });
         }
       }
-      console.log(`Loaded ${conversations.size} conversations from Redis.`);
+      const convIds = Array.isArray(meta.conversationIds) ? meta.conversationIds : [];
+      for (const id of convIds) {
+        try {
+          const raw = await redisClient.get(CONV_KEY_PREFIX + id);
+          if (raw) {
+            const conv = JSON.parse(raw);
+            if (conv && conv.id) conversations.set(conv.id, conv);
+          }
+        } catch (err) {
+          console.error(`Failed to load conversation "${id}" from Redis:`, err.message);
+        }
+      }
+      console.log(`Loaded ${conversations.size} conversation(s) from Redis (per-conversation keys).`);
+    } else {
+      // No new-format meta key yet — check for the old blob and bring it forward once.
+      const migrated = await migrateLegacyBlob();
+      if (!migrated) console.log("No existing Redis state found — starting fresh.");
     }
   } catch (err) {
     console.error("Failed to load state from Redis:", err.message);
   }
   ensureDefaultRoom();
-}
-
-let saveTimer = null;
-function saveStateToRedis() {
-  if (!redisClient) return;
-  // Debounce: several edits/messages can land in the same tick.
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    const payload = JSON.stringify({
-      conversations: Array.from(conversations.values()),
-      knownUsers: Array.from(knownUsers),
-      passwords: Array.from(passwords.entries()).map(([name, rec]) => ({
-        name,
-        salt: rec.salt,
-        hash: rec.hash,
-      })),
-    });
-    redisClient.set(STATE_KEY, payload).catch((err) =>
-      console.error("Failed to save state to Redis:", err.message)
-    );
-  }, 250);
 }
 
 // --- Push notifications setup ---
@@ -333,7 +407,7 @@ io.on("connection", (socket) => {
 
     broadcastPresence();
     if (isNewUser) broadcastDirectory();
-    if (isNewUser || passwordJustSet) saveStateToRedis();
+    if (isNewUser || passwordJustSet) saveMetaToRedis();
   });
 
   socket.on("get-directory", (ack) => {
@@ -378,7 +452,8 @@ io.on("connection", (socket) => {
       // Every currently-connected socket can see public rooms.
       for (const [, s] of io.sockets.sockets) s.join(id);
       io.emit("conversation-created", summarize(conv));
-      saveStateToRedis();
+      saveConversationToRedis(id);
+      saveMetaToRedis();
       return reply(summarize(conv));
     }
 
@@ -421,7 +496,8 @@ io.on("connection", (socket) => {
     }
 
     io.to(id).emit("conversation-created", summarize(conv));
-    saveStateToRedis();
+    saveConversationToRedis(id);
+    saveMetaToRedis();
     reply(summarize(conv));
   });
 
@@ -471,7 +547,7 @@ io.on("connection", (socket) => {
     conv.history.push(msg);
     if (conv.history.length > MAX_HISTORY) conv.history.shift();
     if (msg.video) trimOldVideos(conv);
-    saveStateToRedis();
+    saveConversationToRedis(conversationId);
 
     io.to(conversationId).emit("message", msg);
     notifyNewMessage(msg, conv).catch((err) => console.error("notifyNewMessage error:", err));
@@ -493,7 +569,7 @@ io.on("connection", (socket) => {
 
     msg.text = clean;
     msg.edited = true;
-    saveStateToRedis();
+    saveConversationToRedis(conversationId);
 
     io.to(conversationId).emit("edited", { conversationId, id, text: msg.text, edited: true });
   });
@@ -512,7 +588,7 @@ io.on("connection", (socket) => {
     msg.image = null;
     msg.video = null;
     msg.reactions = {};
-    saveStateToRedis();
+    saveConversationToRedis(conversationId);
 
     io.to(conversationId).emit("deleted", { conversationId, id });
   });
@@ -540,7 +616,7 @@ io.on("connection", (socket) => {
       if (msg.reactions[emoji].length === 0) delete msg.reactions[emoji];
     }
 
-    saveStateToRedis();
+    saveConversationToRedis(conversationId);
     io.to(conversationId).emit("reaction", { conversationId, id, reactions: msg.reactions });
   });
 
