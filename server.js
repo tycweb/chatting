@@ -24,6 +24,112 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded ceiling for a single ph
 const MAX_VIDEO_BYTES = 27 * 1024 * 1024; // ~20MB video, base64-encoded (adds ~33%)
 const MIN_PASSWORD_LENGTH = 4;
 const MAX_PASSWORD_LENGTH = 64;
+// Set ALLOW_IMAGES=false / ALLOW_VIDEOS=false as env vars on the host (e.g. Render)
+// to turn either off without touching code — useful if bandwidth is getting tight.
+const ALLOW_IMAGES = process.env.ALLOW_IMAGES !== "false";
+const ALLOW_VIDEOS = process.env.ALLOW_VIDEOS !== "false";
+
+// --- Optional object storage for photos & videos (Supabase Storage / any S3-compatible host) ---
+// Without this, media is stored inline as base64 — it works, but every open of
+// a conversation re-sends every video's full data, and Redis writes can hit
+// size limits. Setting all env vars below moves media off Redis entirely:
+// the file gets uploaded once, and only a small URL is stored/broadcast from then on.
+//
+// Where to find these in your Supabase project (Project Settings > Storage > S3 Connection):
+//   SUPABASE_S3_ENDPOINT     -> the full endpoint URL shown there (ends in /storage/v1/s3)
+//   SUPABASE_S3_ACCESS_KEY   -> Access Key ID (from "New access key")
+//   SUPABASE_S3_SECRET_KEY   -> Secret Access Key (shown once when created)
+//   SUPABASE_S3_REGION       -> Region shown on that same page (e.g. ap-northeast-1)
+//   SUPABASE_BUCKET_NAME     -> the bucket you created in Storage (must be set Public)
+//   SUPABASE_PROJECT_URL     -> your main project URL, e.g. https://xxxx.supabase.co
+//                               (used only to build the public file URL)
+const SUPABASE_S3_ENDPOINT = (process.env.SUPABASE_S3_ENDPOINT || "").replace(/\/$/, "");
+const SUPABASE_S3_ACCESS_KEY = process.env.SUPABASE_S3_ACCESS_KEY || "";
+const SUPABASE_S3_SECRET_KEY = process.env.SUPABASE_S3_SECRET_KEY || "";
+const SUPABASE_S3_REGION = process.env.SUPABASE_S3_REGION || "us-east-1";
+const SUPABASE_BUCKET_NAME = process.env.SUPABASE_BUCKET_NAME || "";
+const SUPABASE_PROJECT_URL = (process.env.SUPABASE_PROJECT_URL || "").replace(/\/$/, "");
+
+let STORAGE_ENABLED = !!(
+  SUPABASE_S3_ENDPOINT &&
+  SUPABASE_S3_ACCESS_KEY &&
+  SUPABASE_S3_SECRET_KEY &&
+  SUPABASE_BUCKET_NAME &&
+  SUPABASE_PROJECT_URL
+);
+
+// Public URL for an object once uploaded — Supabase serves public bucket files from this path
+// off the main project URL (not the S3 endpoint).
+const SUPABASE_PUBLIC_BASE_URL = SUPABASE_PROJECT_URL
+  ? `${SUPABASE_PROJECT_URL}/storage/v1/object/public/${SUPABASE_BUCKET_NAME}`
+  : "";
+
+let s3Client = null;
+let PutObjectCommand = null;
+
+if (STORAGE_ENABLED) {
+  try {
+    const s3mod = require("@aws-sdk/client-s3");
+    PutObjectCommand = s3mod.PutObjectCommand;
+    s3Client = new s3mod.S3Client({
+      region: SUPABASE_S3_REGION,
+      endpoint: SUPABASE_S3_ENDPOINT,
+      forcePathStyle: true, // required for Supabase's S3-compatible endpoint
+      credentials: { accessKeyId: SUPABASE_S3_ACCESS_KEY, secretAccessKey: SUPABASE_S3_SECRET_KEY },
+    });
+  } catch (err) {
+    console.error(
+      "Supabase storage env vars are set but the @aws-sdk/client-s3 package isn't installed. Run: npm install @aws-sdk/client-s3"
+    );
+    STORAGE_ENABLED = false;
+  }
+}
+
+if (!STORAGE_ENABLED) {
+  console.warn(
+    "Supabase object storage not active — photos/videos will be stored inline in Redis as before. " +
+      "Set SUPABASE_S3_ENDPOINT, SUPABASE_S3_ACCESS_KEY, SUPABASE_S3_SECRET_KEY, SUPABASE_BUCKET_NAME, and SUPABASE_PROJECT_URL to enable it."
+  );
+}
+
+function parseDataUrl(dataUrl) {
+  const match = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl);
+  if (!match) return null;
+  return { mime: match[1], buffer: Buffer.from(match[2], "base64") };
+}
+
+const EXT_BY_MIME = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+};
+
+function extFromMime(mime) {
+  return EXT_BY_MIME[mime] || (mime.split("/")[1] || "bin").replace(/[^a-z0-9]/gi, "");
+}
+
+// Uploads a "data:<mime>;base64,..." string to R2 and returns its public URL.
+// Falls back to returning the data URL unchanged if R2 isn't configured, so
+// the app keeps working exactly as before until you set it up.
+async function uploadMedia(dataUrl, folder) {
+  if (!STORAGE_ENABLED) return dataUrl;
+  const parsed = parseDataUrl(dataUrl);
+  if (!parsed) return null;
+  const key = `${folder}/${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${extFromMime(parsed.mime)}`;
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: SUPABASE_BUCKET_NAME,
+      Key: key,
+      Body: parsed.buffer,
+      ContentType: parsed.mime,
+    })
+  );
+  return `${SUPABASE_PUBLIC_BASE_URL}/${key}`;
+}
 
 // ---------------------------------------------------------------------------
 // State
@@ -403,6 +509,7 @@ io.on("connection", (socket) => {
       name,
       conversations: conversationsForUser(name),
       directory: Array.from(knownUsers).filter((n) => n !== name),
+      media: { images: ALLOW_IMAGES, videos: ALLOW_VIDEOS },
     });
 
     broadcastPresence();
@@ -501,7 +608,7 @@ io.on("connection", (socket) => {
     reply(summarize(conv));
   });
 
-  socket.on("message", (payload) => {
+  socket.on("message", async (payload) => {
     const name = socket.data.name;
     if (!name) return;
 
@@ -518,14 +625,28 @@ io.on("connection", (socket) => {
 
     let image = null;
     if (typeof rawImage === "string" && rawImage.startsWith("data:image/")) {
+      if (!ALLOW_IMAGES) return;
       if (rawImage.length > MAX_IMAGE_BYTES) return;
-      image = rawImage;
+      try {
+        image = await uploadMedia(rawImage, "images");
+      } catch (err) {
+        console.error("Image upload failed:", err.message);
+        return;
+      }
+      if (!image) return;
     }
 
     let video = null;
     if (typeof rawVideo === "string" && rawVideo.startsWith("data:video/")) {
+      if (!ALLOW_VIDEOS) return;
       if (rawVideo.length > MAX_VIDEO_BYTES) return;
-      video = rawVideo;
+      try {
+        video = await uploadMedia(rawVideo, "videos");
+      } catch (err) {
+        console.error("Video upload failed:", err.message);
+        return;
+      }
+      if (!video) return;
     }
 
     if (!clean && !image && !video) return;
@@ -546,7 +667,10 @@ io.on("connection", (socket) => {
 
     conv.history.push(msg);
     if (conv.history.length > MAX_HISTORY) conv.history.shift();
-    if (msg.video) trimOldVideos(conv);
+    // This cap only still matters when media is stored inline (no R2 configured) —
+    // once media lives in R2, the stored value is just a small URL, so there's
+    // nothing to trim.
+    if (msg.video && !STORAGE_ENABLED) trimOldVideos(conv);
     saveConversationToRedis(conversationId);
 
     io.to(conversationId).emit("message", msg);
