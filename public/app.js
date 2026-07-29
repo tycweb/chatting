@@ -91,6 +91,20 @@
       document.title = baseTitle;
     }
   });
+  // Only one video should ever play (and make sound) at a time. "play" doesn't
+  // bubble, so this listener is attached with capture=true on the document —
+  // whenever any <video> starts playing, pause every other one.
+  document.addEventListener(
+    "play",
+    (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLVideoElement)) return;
+      document.querySelectorAll("video.msg-video").forEach((v) => {
+        if (v !== target && !v.paused) v.pause();
+      });
+    },
+    true
+  );
   let soundEnabled = true;
   let audioCtx = null;
   let lastTap = { id: null, time: 0 };
