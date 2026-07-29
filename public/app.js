@@ -2,6 +2,7 @@
   const QUICK_REACTIONS = ["😎", "😂", "😮", "😢", "🙏", "👍", "🔥", "🗿"];
 
   const joinScreen = document.getElementById("join-screen");
+  const conversationsScreen = document.getElementById("conversations-screen");
   const chatScreen = document.getElementById("chat-screen");
   const nameInput = document.getElementById("name-input");
   const joinBtn = document.getElementById("join-btn");
@@ -10,6 +11,7 @@
   const messageInput = document.getElementById("message-input");
   const sendBtn = document.getElementById("send-btn");
   const presenceLine = document.getElementById("presence-line");
+  const convPresenceLine = document.getElementById("conv-presence-line");
   const connectionDot = document.getElementById("connection-dot");
   const typingIndicator = document.getElementById("typing-indicator");
   const typingName = document.getElementById("typing-name");
@@ -21,7 +23,29 @@
   const jumpCount = document.getElementById("jump-count");
   const jumpLabel = document.getElementById("jump-label");
   const soundToggle = document.getElementById("sound-toggle");
-  const chatHeader = document.querySelector(".chat-header");
+  const chatHeader = document.querySelector("#chat-screen .chat-header");
+
+  // Conversations list UI
+  const conversationList = document.getElementById("conversation-list");
+  const convEmptyState = document.getElementById("conv-empty-state");
+  const newChatBtn = document.getElementById("new-chat-btn");
+  const backBtn = document.getElementById("back-btn");
+  const chatTitle = document.getElementById("chat-title");
+  const chatTitleAvatar = document.getElementById("chat-title-avatar");
+
+  // New chat modal UI
+  const newChatModal = document.getElementById("new-chat-modal");
+  const newChatClose = document.getElementById("new-chat-close");
+  const tabMessage = document.getElementById("tab-message");
+  const tabRoom = document.getElementById("tab-room");
+  const messageMode = document.getElementById("message-mode");
+  const roomMode = document.getElementById("room-mode");
+  const memberSearch = document.getElementById("member-search");
+  const memberListEl = document.getElementById("member-list");
+  const groupNameInput = document.getElementById("group-name-input");
+  const startChatBtn = document.getElementById("start-chat-btn");
+  const roomNameInput = document.getElementById("room-name-input");
+  const createRoomBtn = document.getElementById("create-room-btn");
 
   // Search UI
   const searchBtn = document.getElementById("search-btn");
@@ -80,6 +104,13 @@
   let replyTarget = null; // { id, name, text, image }
   let editingId = null;
 
+  // ---------- Multi-conversation state ----------
+  let currentConversationId = null;
+  const conversationsMeta = new Map(); // id -> { id, type, name, members, lastMessage, unread }
+  let directory = []; // known usernames, excluding myName
+  const selectedMembers = new Set();
+  let onlineNames = [];
+
   // Consecutive messages from the same sender within this window are
   // visually grouped (Messenger-style): tightened spacing, flattened
   // seam corners, and the name/avatar shown only once per group.
@@ -97,6 +128,276 @@
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
+
+  function fmtListTime(ts) {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    if (sameDay) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  // ---------- Conversation display helpers ----------
+
+  function otherMembers(conv) {
+    return (conv.members || []).filter((m) => m !== myName);
+  }
+
+  function conversationTitle(conv) {
+    if (conv.type === "room") return conv.name || "Room";
+    if (conv.type === "group") return conv.name || otherMembers(conv).join(", ") || "Group";
+    // dm
+    const other = otherMembers(conv)[0];
+    return other || conv.name || "Chat";
+  }
+
+  function conversationAvatarHtml(conv) {
+    if (conv.type === "room") {
+      return `<div class="conv-avatar room-avatar">#</div>`;
+    }
+    if (conv.type === "group") {
+      return `<div class="conv-avatar group-avatar">👥</div>`;
+    }
+    const other = otherMembers(conv)[0] || "?";
+    const initial = other.trim().charAt(0).toUpperCase() || "?";
+    return `<div class="conv-avatar" style="background:${colorForName(other)}">${escapeHtml(initial)}</div>`;
+  }
+
+  function conversationPreviewText(conv) {
+    const last = conv.lastMessage;
+    if (!last) return conv.type === "room" ? "Say hello 👋" : "No messages yet";
+    if (last.deleted) return "Message deleted";
+    const who = last.name === myName ? "You" : last.name;
+    let body;
+    if (last.video) body = "🎥 Video";
+    else if (last.image) body = "📷 Photo";
+    else body = last.text || "";
+    return conv.type === "room" || conv.type === "group" ? `${who}: ${body}` : body;
+  }
+
+  function sortedConversations() {
+    return Array.from(conversationsMeta.values()).sort((a, b) => {
+      const at = (a.lastMessage && a.lastMessage.time) || a.createdAt || 0;
+      const bt = (b.lastMessage && b.lastMessage.time) || b.createdAt || 0;
+      return bt - at;
+    });
+  }
+
+  function renderConversationList() {
+    const list = sortedConversations();
+    conversationList.innerHTML = "";
+    convEmptyState.classList.toggle("hidden", list.length > 0);
+    list.forEach((conv) => {
+      const item = document.createElement("div");
+      item.className = `conv-item${conv.unread ? " unread" : ""}`;
+      item.dataset.id = conv.id;
+      const time = conv.lastMessage ? fmtListTime(conv.lastMessage.time) : "";
+      item.innerHTML = `
+        ${conversationAvatarHtml(conv)}
+        <div class="conv-body">
+          <div class="conv-top-row">
+            <p class="conv-name">${escapeHtml(conversationTitle(conv))}</p>
+            <span class="conv-time">${time}</span>
+          </div>
+          <div class="conv-preview-row">
+            <p class="conv-preview">${escapeHtml(conversationPreviewText(conv))}</p>
+            ${conv.unread ? `<span class="conv-unread-badge">${conv.unread > 99 ? "99+" : conv.unread}</span>` : ""}
+          </div>
+        </div>
+      `;
+      item.addEventListener("click", () => openConversationById(conv.id));
+      conversationList.appendChild(item);
+    });
+  }
+
+  function upsertConversation(conv, opts = {}) {
+    const existing = conversationsMeta.get(conv.id);
+    const merged = Object.assign({ unread: existing ? existing.unread : 0 }, existing, conv);
+    if (opts.bumpUnread) merged.unread = (merged.unread || 0) + 1;
+    if (opts.clearUnread) merged.unread = 0;
+    conversationsMeta.set(conv.id, merged);
+    if (!conversationsScreen.classList.contains("hidden")) renderConversationList();
+  }
+
+  function showConversationsScreen() {
+    currentConversationId = null;
+    closeLightbox();
+    closePicker();
+    closeActionMenu();
+    chatScreen.classList.add("hidden");
+    conversationsScreen.classList.remove("hidden");
+    renderConversationList();
+  }
+
+  function updateConvPresenceLine() {
+    if (!convPresenceLine) return;
+    const others = onlineNames.filter((n) => n !== myName);
+    if (others.length === 0) convPresenceLine.textContent = "just you online";
+    else if (others.length <= 3) convPresenceLine.textContent = others.join(", ") + " online";
+    else convPresenceLine.textContent = `${others.length} people online`;
+  }
+
+  function openConversationById(id) {
+    if (!socket) return;
+    closeNewChatModal();
+    socket.emit("open-conversation", { id }, (res) => {
+      if (!res || res.error) {
+        renderSystem("Couldn't open that chat.");
+        return;
+      }
+      currentConversationId = id;
+      clearReplyTarget();
+      cancelEdit();
+      messagesById.clear();
+      lastRenderedId = null;
+      messageList.innerHTML = "";
+      searchClose.click();
+
+      const conv = conversationsMeta.get(id) || { id, type: res.type, name: res.name, members: res.members };
+      conv.type = res.type;
+      conv.name = res.name;
+      conv.members = res.members;
+      upsertConversation(conv, { clearUnread: true });
+
+      chatTitle.textContent = conversationTitle(conv);
+      chatTitleAvatar.textContent =
+        conv.type === "room" ? "#" : conv.type === "group" ? "👥" : conversationTitle(conv).charAt(0).toUpperCase();
+      if (conv.type === "room") {
+        presenceLine.textContent = "public room";
+      } else if (conv.type === "group") {
+        presenceLine.textContent = `${(conv.members || []).length} people`;
+      } else {
+        updateDmPresence(conv);
+      }
+
+      res.history.forEach(renderMessage);
+      scrollToBottom();
+      messageList.querySelectorAll("img.msg-image").forEach((img) => {
+        if (!img.complete) img.addEventListener("load", scrollToBottom, { once: true });
+      });
+
+      conversationsScreen.classList.add("hidden");
+      chatScreen.classList.remove("hidden");
+      messageInput.focus();
+    });
+  }
+
+  function updateDmPresence(conv) {
+    const other = otherMembers(conv)[0];
+    if (!other) return;
+    presenceLine.textContent = onlineNames.includes(other) ? "online" : "offline";
+  }
+
+  backBtn && backBtn.addEventListener("click", showConversationsScreen);
+
+  // ---------- New chat modal ----------
+
+  function closeNewChatModal() {
+    newChatModal.classList.add("hidden");
+  }
+
+  function openNewChatModal() {
+    selectedMembers.clear();
+    memberSearch.value = "";
+    groupNameInput.value = "";
+    groupNameInput.classList.add("hidden");
+    roomNameInput.value = "";
+    startChatBtn.disabled = true;
+    createRoomBtn.disabled = true;
+    setNewChatTab("message");
+    renderMemberList();
+    newChatModal.classList.remove("hidden");
+  }
+
+  function setNewChatTab(mode) {
+    tabMessage.classList.toggle("active", mode === "message");
+    tabRoom.classList.toggle("active", mode === "room");
+    messageMode.classList.toggle("hidden", mode !== "message");
+    roomMode.classList.toggle("hidden", mode !== "room");
+  }
+
+  function renderMemberList() {
+    const q = memberSearch.value.trim().toLowerCase();
+    const names = directory.filter((n) => n.toLowerCase().includes(q));
+    memberListEl.innerHTML = "";
+    if (names.length === 0) {
+      memberListEl.innerHTML = `<p class="member-list-empty">No one else here yet — share the link with a friend.</p>`;
+      return;
+    }
+    names.forEach((n) => {
+      const row = document.createElement("div");
+      row.className = `member-row${selectedMembers.has(n) ? " selected" : ""}`;
+      const initial = n.trim().charAt(0).toUpperCase() || "?";
+      row.innerHTML = `
+        <div class="conv-avatar" style="background:${colorForName(n)}">${escapeHtml(initial)}</div>
+        <span class="member-row-name">${escapeHtml(n)}</span>
+        <span class="member-checkbox"></span>
+      `;
+      row.addEventListener("click", () => {
+        if (selectedMembers.has(n)) selectedMembers.delete(n);
+        else selectedMembers.add(n);
+        renderMemberList();
+        groupNameInput.classList.toggle("hidden", selectedMembers.size <= 1);
+        startChatBtn.disabled = selectedMembers.size === 0;
+      });
+      memberListEl.appendChild(row);
+    });
+  }
+
+  newChatBtn && newChatBtn.addEventListener("click", openNewChatModal);
+  newChatClose && newChatClose.addEventListener("click", closeNewChatModal);
+  newChatModal &&
+    newChatModal.addEventListener("click", (e) => {
+      if (e.target === newChatModal) closeNewChatModal();
+    });
+  tabMessage && tabMessage.addEventListener("click", () => setNewChatTab("message"));
+  tabRoom && tabRoom.addEventListener("click", () => setNewChatTab("room"));
+  memberSearch && memberSearch.addEventListener("input", renderMemberList);
+  roomNameInput &&
+    roomNameInput.addEventListener("input", () => {
+      createRoomBtn.disabled = !roomNameInput.value.trim();
+    });
+
+  startChatBtn &&
+    startChatBtn.addEventListener("click", () => {
+      if (!socket || selectedMembers.size === 0) return;
+      startChatBtn.disabled = true;
+      socket.emit(
+        "create-conversation",
+        { type: "dm", members: Array.from(selectedMembers), name: groupNameInput.value.trim() },
+        (res) => {
+          startChatBtn.disabled = false;
+          if (!res || res.error) {
+            renderSystem("Couldn't start that chat.");
+            return;
+          }
+          upsertConversation(res);
+          closeNewChatModal();
+          openConversationById(res.id);
+        }
+      );
+    });
+
+  createRoomBtn &&
+    createRoomBtn.addEventListener("click", () => {
+      const name = roomNameInput.value.trim();
+      if (!socket || !name) return;
+      createRoomBtn.disabled = true;
+      socket.emit("create-conversation", { type: "room", name }, (res) => {
+        createRoomBtn.disabled = false;
+        if (!res || res.error) {
+          renderSystem("Couldn't create that room.");
+          return;
+        }
+        upsertConversation(res);
+        closeNewChatModal();
+        openConversationById(res.id);
+      });
+    });
 
   function scrollToBottom() {
     // Run after the browser has actually laid out the new content —
@@ -433,7 +734,7 @@
     closePicker();
     spawnHeartBurst(bubbleEl);
     if (navigator.vibrate) navigator.vibrate(12);
-    socket.emit("react", { id, emoji: "❤️" });
+    socket.emit("react", { conversationId: currentConversationId, id, emoji: "❤️" });
   }
 
   function closePicker() {
@@ -455,7 +756,7 @@
     picker.querySelectorAll("button[data-pick]").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        socket.emit("react", { id, emoji: btn.dataset.pick });
+        socket.emit("react", { conversationId: currentConversationId, id, emoji: btn.dataset.pick });
         closePicker();
       });
     });
@@ -543,7 +844,7 @@
   function deleteMessage(id) {
     const msg = messagesById.get(id);
     if (!msg || msg.name !== myName || !socket) return;
-    socket.emit("delete", { id });
+    socket.emit("delete", { conversationId: currentConversationId, id });
   }
 
   // ---------- Long-press action menu ----------
@@ -791,7 +1092,7 @@
     }
     const chip = e.target.closest("[data-react-id]");
     if (chip) {
-      socket.emit("react", { id: chip.dataset.reactId, emoji: chip.dataset.emoji });
+      socket.emit("react", { conversationId: currentConversationId, id: chip.dataset.reactId, emoji: chip.dataset.emoji });
       return;
     }
     closePicker();
@@ -943,20 +1244,22 @@
       connectionDot.classList.add("online");
       socket.emit("join", name, (res) => {
         myName = res.name;
-        messageList.innerHTML = "";
-        res.history.forEach(renderMessage);
-        scrollToBottom();
+        directory = res.directory || [];
+        conversationsMeta.clear();
+        (res.conversations || []).forEach((c) => conversationsMeta.set(c.id, Object.assign({ unread: 0 }, c)));
 
-        // Photos load asynchronously and grow the page after the fact —
-        // re-anchor to the bottom each time one finishes so we don't get
-        // stranded above the latest message.
-        messageList.querySelectorAll("img.msg-image").forEach((img) => {
-          if (!img.complete) {
-            img.addEventListener("load", scrollToBottom, { once: true });
-          }
-        });
+        joinScreen.classList.add("hidden");
 
-        presenceLine.textContent = "connected";
+        if (currentConversationId && conversationsMeta.has(currentConversationId)) {
+          const reopenId = currentConversationId;
+          conversationsScreen.classList.add("hidden");
+          openConversationById(reopenId);
+        } else {
+          chatScreen.classList.add("hidden");
+          conversationsScreen.classList.remove("hidden");
+          renderConversationList();
+        }
+
         setupPush(myName);
       });
     });
@@ -974,30 +1277,52 @@
 
     socket.on("message", (msg) => {
       const isMe = msg.name === myName;
-      const wasNearBottom = isNearBottom();
-      renderMessage(msg);
-      othersTyping.delete(msg.name);
-      updateTypingUI();
+      const isOpen = msg.conversationId === currentConversationId && chatScreen.classList.contains("hidden") === false;
 
-      if (isMe || wasNearBottom) {
-        scrollToBottom();
-        hideJumpPill();
-      } else {
-        unreadCount += 1;
-        showJumpPill();
+      // Keep the conversation list preview/ordering in sync no matter what's open.
+      const meta = conversationsMeta.get(msg.conversationId) || { id: msg.conversationId, type: "dm", members: [] };
+      meta.lastMessage = {
+        name: msg.name,
+        text: msg.deleted ? "" : msg.text,
+        image: !msg.deleted && !!msg.image,
+        video: !msg.deleted && !!msg.video,
+        deleted: !!msg.deleted,
+        time: msg.time,
+      };
+      upsertConversation(meta, { bumpUnread: !isMe && !isOpen });
+
+      if (isOpen) {
+        const wasNearBottom = isNearBottom();
+        renderMessage(msg);
+        othersTyping.delete(msg.name);
+        updateTypingUI();
+
+        if (isMe || wasNearBottom) {
+          scrollToBottom();
+          hideJumpPill();
+        } else {
+          unreadCount += 1;
+          showJumpPill();
+        }
+
+        if (!isMe) playPop(wasNearBottom ? 720 : 520);
+      } else if (!isMe) {
+        playPop(420);
       }
 
-      if (!isMe) {
-        playPop(wasNearBottom ? 720 : 520);
-        if (document.hidden) {
-          if (navigator.vibrate) navigator.vibrate(20);
-          unreadTitleCount += 1;
-          document.title = `(${unreadTitleCount}) ${baseTitle}`;
-        }
+      if (!isMe && document.hidden) {
+        if (navigator.vibrate) navigator.vibrate(20);
+        unreadTitleCount += 1;
+        document.title = `(${unreadTitleCount}) ${baseTitle}`;
       }
     });
 
-    socket.on("edited", ({ id, text, edited }) => {
+    socket.on("edited", ({ conversationId, id, text, edited }) => {
+      const meta = conversationsMeta.get(conversationId);
+      if (meta && meta.lastMessage) {
+        // best-effort preview sync; harmless if it wasn't the last message
+      }
+      if (conversationId !== currentConversationId) return;
       const msg = messagesById.get(id);
       if (!msg) return;
       msg.text = text;
@@ -1005,7 +1330,8 @@
       updateRowInPlace(msg);
     });
 
-    socket.on("deleted", ({ id }) => {
+    socket.on("deleted", ({ conversationId, id }) => {
+      if (conversationId !== currentConversationId) return;
       const msg = messagesById.get(id);
       if (!msg) return;
       msg.deleted = true;
@@ -1015,16 +1341,33 @@
       updateRowInPlace(msg);
     });
 
-    socket.on("reaction", ({ id, reactions }) => {
+    socket.on("reaction", ({ conversationId, id, reactions }) => {
+      if (conversationId !== currentConversationId) return;
       updateReactionsUI(id, reactions);
       if (navigator.vibrate) navigator.vibrate(8);
     });
 
-    socket.on("system", (evt) => renderSystem(evt.text));
+    socket.on("conversation-created", (conv) => {
+      upsertConversation(conv);
+    });
 
-    socket.on("presence", (names) => updatePresence(names));
+    socket.on("directory", (names) => {
+      directory = (names || []).filter((n) => n !== myName);
+      if (!newChatModal.classList.contains("hidden")) renderMemberList();
+    });
 
-    socket.on("typing", ({ name, isTyping }) => {
+    socket.on("presence", (names) => {
+      onlineNames = names || [];
+      updatePresence(names);
+      updateConvPresenceLine();
+      if (currentConversationId) {
+        const conv = conversationsMeta.get(currentConversationId);
+        if (conv && conv.type === "dm") updateDmPresence(conv);
+      }
+    });
+
+    socket.on("typing", ({ conversationId, name, isTyping }) => {
+      if (conversationId !== currentConversationId) return;
       if (isTyping) {
         clearTimeout(othersTyping.get(name));
         const t = setTimeout(() => {
@@ -1042,23 +1385,23 @@
 
   function send() {
     const text = messageInput.value.trim();
-    if (!text || !socket) return;
+    if (!text || !socket || !currentConversationId) return;
 
     if (editingId) {
-      socket.emit("edit", { id: editingId, text });
+      socket.emit("edit", { conversationId: currentConversationId, id: editingId, text });
       cancelEdit();
       if (navigator.vibrate) navigator.vibrate(10);
       return;
     }
 
-    const payload = { text };
+    const payload = { conversationId: currentConversationId, text };
     if (replyTarget) {
       payload.replyTo = { id: replyTarget.id };
     }
     socket.emit("message", payload);
     messageInput.value = "";
     autosize();
-    socket.emit("typing", false);
+    socket.emit("typing", { conversationId: currentConversationId, isTyping: false });
     sendBtn.classList.add("pulsing");
     setTimeout(() => sendBtn.classList.remove("pulsing"), 360);
     if (navigator.vibrate) navigator.vibrate(10);
@@ -1101,7 +1444,7 @@
   }
 
   async function sendImage(file) {
-    if (!socket || !file) return;
+    if (!socket || !file || !currentConversationId) return;
     if (!file.type.startsWith("image/")) return;
     if (file.size > MAX_SOURCE_FILE_BYTES) {
       renderSystem("That photo is too large to send.");
@@ -1113,7 +1456,7 @@
     const minVisible = wait(500);
     try {
       const dataUrl = await compressImage(file);
-      const payload = { image: dataUrl };
+      const payload = { conversationId: currentConversationId, image: dataUrl };
       if (replyTarget) {
         payload.replyTo = { id: replyTarget.id };
       }
@@ -1320,7 +1663,7 @@
   }
 
   async function sendVideo(file) {
-    if (!socket || !file) return;
+    if (!socket || !file || !currentConversationId) return;
     if (!file.type.startsWith("video/")) return;
     if (file.size > VIDEO_HARD_MAX_SOURCE_BYTES) {
       renderSystem("That video is too large to send, even with compression.");
@@ -1343,7 +1686,7 @@
         status.setText("Sending video…");
       }
       const dataUrl = await readFileAsDataUrl(outFile);
-      const payload = { video: dataUrl };
+      const payload = { conversationId: currentConversationId, video: dataUrl };
       if (replyTarget) {
         payload.replyTo = { id: replyTarget.id };
       }
@@ -1380,10 +1723,13 @@
 
   messageInput.addEventListener("input", () => {
     autosize();
-    if (!socket || editingId) return;
-    socket.emit("typing", true);
+    if (!socket || editingId || !currentConversationId) return;
+    socket.emit("typing", { conversationId: currentConversationId, isTyping: true });
     clearTimeout(typingTimeout);
-    typingTimeout = setTimeout(() => socket.emit("typing", false), 1500);
+    typingTimeout = setTimeout(
+      () => socket.emit("typing", { conversationId: currentConversationId, isTyping: false }),
+      1500
+    );
   });
 
   messageInput.addEventListener("keydown", (e) => {
@@ -1443,7 +1789,6 @@
     localStorage.setItem("chatName", name);
 
     joinScreen.classList.add("hidden");
-    chatScreen.classList.remove("hidden");
     connect(name);
   }
 
@@ -1457,7 +1802,6 @@
   if (savedName) {
     nameInput.value = savedName;
     joinScreen.classList.add("hidden");
-    chatScreen.classList.remove("hidden");
     connect(savedName);
   } else {
     nameInput.focus();

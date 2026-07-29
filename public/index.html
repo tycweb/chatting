@@ -41,13 +41,63 @@
     </div>
   </div>
 
+  <!-- Conversations list screen (Messenger-style chat list) -->
+  <div id="conversations-screen" class="screen conversations-screen hidden">
+    <header class="chat-header conv-list-header">
+      <div class="header-left">
+        <div class="brand-mark small">T</div>
+        <div>
+          <h2>Chats</h2>
+          <p id="conv-presence-line" class="presence-line">connecting…</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <button id="new-chat-btn" class="icon-btn" aria-label="Start new chat" type="button">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </header>
+    <main id="conversation-list" class="conversation-list"></main>
+    <p id="conv-empty-state" class="conv-empty-state hidden">No chats yet — tap + to start one.</p>
+  </div>
+
+  <!-- New chat modal -->
+  <div id="new-chat-modal" class="new-chat-modal hidden">
+    <div class="new-chat-card">
+      <div class="new-chat-head">
+        <p class="new-chat-title">New chat</p>
+        <button id="new-chat-close" class="new-chat-close" type="button">✕</button>
+      </div>
+      <div class="new-chat-tabs">
+        <button id="tab-message" class="new-chat-tab active" type="button" data-mode="message">Message</button>
+        <button id="tab-room" class="new-chat-tab" type="button" data-mode="room">New room</button>
+      </div>
+
+      <div id="message-mode" class="new-chat-mode">
+        <input id="member-search" class="name-input new-chat-input" placeholder="Search people…" autocomplete="off" />
+        <div id="member-list" class="member-list"></div>
+        <input id="group-name-input" class="name-input new-chat-input hidden" maxlength="40" placeholder="Name this group (optional)" autocomplete="off" />
+        <button id="start-chat-btn" class="btn-primary" disabled>Start chat</button>
+      </div>
+
+      <div id="room-mode" class="new-chat-mode hidden">
+        <input id="room-name-input" class="name-input new-chat-input" maxlength="40" placeholder="Room name, e.g. Random" autocomplete="off" />
+        <p class="new-chat-hint">Anyone in Tycept can find and join a room.</p>
+        <button id="create-room-btn" class="btn-primary" disabled>Create room</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Chat screen -->
   <div id="chat-screen" class="screen chat-screen hidden">
     <header class="chat-header">
       <div class="header-left">
-        <div class="brand-mark small">T</div>
+        <button id="back-btn" class="icon-btn back-btn" aria-label="Back to chats" type="button">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div id="chat-title-avatar" class="brand-mark small">T</div>
         <div>
-          <h2>Chat</h2>
+          <h2 id="chat-title">Chat</h2>
           <p id="presence-line" class="presence-line">connecting…</p>
         </div>
       </div>
