@@ -1,6 +1,7 @@
 const express = require("express");
 const http = require("http");
 const path = require("path");
+const crypto = require("crypto");
 const { Server } = require("socket.io");
 const webpush = require("web-push");
 const { createClient } = require("redis");
@@ -21,6 +22,8 @@ const MAX_CONV_NAME_LENGTH = 40;
 const MAX_GROUP_MEMBERS = 30;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded ceiling for a single photo
 const MAX_VIDEO_BYTES = 27 * 1024 * 1024; // ~20MB video, base64-encoded (adds ~33%)
+const MIN_PASSWORD_LENGTH = 4;
+const MAX_PASSWORD_LENGTH = 64;
 
 // ---------------------------------------------------------------------------
 // State
@@ -33,6 +36,25 @@ const conversations = new Map();
 const knownUsers = new Set(); // every name that has ever joined — the "directory"
 const onlineUsers = new Map(); // socket.id -> name
 const socketsByName = new Map(); // name -> Set(socket.id)
+const passwords = new Map(); // name -> { salt, hash } — set once, the first time a name is claimed
+
+function hashPassword(password, salt) {
+  return crypto.scryptSync(password, salt, 64).toString("hex");
+}
+
+function setPassword(name, password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  passwords.set(name, { salt, hash: hashPassword(password, salt) });
+}
+
+function checkPassword(name, password) {
+  const record = passwords.get(name);
+  if (!record) return false;
+  const candidate = Buffer.from(hashPassword(password, record.salt), "hex");
+  const actual = Buffer.from(record.hash, "hex");
+  if (candidate.length !== actual.length) return false;
+  return crypto.timingSafeEqual(candidate, actual);
+}
 
 function ensureDefaultRoom() {
   if (!conversations.has("general")) {
@@ -74,6 +96,11 @@ async function loadStateFromRedis() {
       if (Array.isArray(saved.knownUsers)) {
         for (const n of saved.knownUsers) knownUsers.add(n);
       }
+      if (Array.isArray(saved.passwords)) {
+        for (const p of saved.passwords) {
+          if (p && p.name && p.salt && p.hash) passwords.set(p.name, { salt: p.salt, hash: p.hash });
+        }
+      }
       console.log(`Loaded ${conversations.size} conversations from Redis.`);
     }
   } catch (err) {
@@ -91,6 +118,11 @@ function saveStateToRedis() {
     const payload = JSON.stringify({
       conversations: Array.from(conversations.values()),
       knownUsers: Array.from(knownUsers),
+      passwords: Array.from(passwords.entries()).map(([name, rec]) => ({
+        name,
+        salt: rec.salt,
+        hash: rec.hash,
+      })),
     });
     redisClient.set(STATE_KEY, payload).catch((err) =>
       console.error("Failed to save state to Redis:", err.message)
@@ -249,9 +281,39 @@ function findExistingDm(members) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("join", (rawName, ack) => {
+  socket.on("join", (payload, ack) => {
+    const reply = (result) => {
+      if (typeof ack === "function") ack(result);
+    };
+
+    // Accept either the new { name, password } shape or a bare name string
+    // (older clients), so a stray legacy call doesn't crash the server.
+    const rawName = payload && typeof payload === "object" ? payload.name : payload;
+    const rawPassword = payload && typeof payload === "object" ? payload.password : "";
+
     const name =
       sanitize(rawName).slice(0, MAX_NAME_LENGTH) || `Guest${Math.floor(Math.random() * 1000)}`;
+    const password = String(rawPassword || "").slice(0, MAX_PASSWORD_LENGTH);
+
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return reply({ error: "password-required", minLength: MIN_PASSWORD_LENGTH });
+    }
+
+    const isNewUser = !knownUsers.has(name);
+    let passwordJustSet = false;
+
+    if (passwords.has(name)) {
+      // Returning name — the password set the first time it was used must match.
+      if (!checkPassword(name, password)) {
+        return reply({ error: "wrong-password" });
+      }
+    } else {
+      // First time this name has ever been used — whatever password came in
+      // becomes that name's password from now on.
+      setPassword(name, password);
+      passwordJustSet = true;
+    }
+
     socket.data.name = name;
     onlineUsers.set(socket.id, name);
 
@@ -259,24 +321,19 @@ io.on("connection", (socket) => {
     set.add(socket.id);
     socketsByName.set(name, set);
 
-    const isNewUser = !knownUsers.has(name);
     knownUsers.add(name);
 
     joinAllRoomsFor(socket, name);
 
-    if (typeof ack === "function") {
-      ack({
-        name,
-        conversations: conversationsForUser(name),
-        directory: Array.from(knownUsers).filter((n) => n !== name),
-      });
-    }
+    reply({
+      name,
+      conversations: conversationsForUser(name),
+      directory: Array.from(knownUsers).filter((n) => n !== name),
+    });
 
     broadcastPresence();
-    if (isNewUser) {
-      broadcastDirectory();
-      saveStateToRedis();
-    }
+    if (isNewUser) broadcastDirectory();
+    if (isNewUser || passwordJustSet) saveStateToRedis();
   });
 
   socket.on("get-directory", (ack) => {
