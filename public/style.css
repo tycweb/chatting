@@ -20,6 +20,10 @@
   --online: #34d399;
   --connecting: #fbbf24;
   --offline: #f87171;
+  --msgr-blue-1: #00c6ff;
+  --msgr-blue-2: #0084ff;
+  --bubble-radius: 18px;
+  --bubble-radius-tight: 5px;
 }
 
 * { box-sizing: border-box; }
@@ -250,26 +254,61 @@ html, body {
   padding: 16px 14px 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   scrollbar-width: none;
 }
 
 .message-list::-webkit-scrollbar { display: none; }
 
+/* Each row is now a horizontal line: [avatar] [name + bubble column].
+   Messenger groups consecutive messages from the same sender — the
+   .grouped-prev/.grouped-next classes (added in app.js) tighten the
+   spacing and flatten the "seam" corners between grouped bubbles. */
 .msg-row {
   display: flex;
-  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
   max-width: 82%;
   animation: rise 0.18s ease-out;
 }
 
-.msg-row.me { align-self: flex-end; align-items: flex-end; }
-.msg-row.them { align-self: flex-start; align-items: flex-start; }
+.msg-row.me { align-self: flex-end; flex-direction: row-reverse; }
+.msg-row.them { align-self: flex-start; }
+
+.msg-row.grouped-prev { margin-top: -6px; }
 
 @keyframes rise {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.msg-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.msg-row.me .msg-col { align-items: flex-end; }
+.msg-row.them .msg-col { align-items: flex-start; }
+
+.msg-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-display);
+  color: var(--black-0);
+  margin-bottom: 1px;
+}
+
+/* Only the last bubble in a consecutive run shows its avatar — earlier
+   ones keep an invisible spacer so the column stays aligned. */
+.msg-row.them.grouped-next .msg-avatar { visibility: hidden; }
 
 .msg-name {
   font-size: 11px;
@@ -282,27 +321,40 @@ html, body {
   position: relative;
 }
 
+.msg-bubble-wrap:has(.reaction-row:not(:empty)) {
+  margin-bottom: 10px;
+}
+
 .msg-bubble {
   padding: 10px 13px;
-  border-radius: 17px;
+  border-radius: var(--bubble-radius);
   font-size: 14.5px;
   line-height: 1.42;
   word-break: break-word;
   cursor: pointer;
   user-select: none;
+  transition: border-radius 0.15s ease;
 }
 
 .msg-row.me .msg-bubble {
-  background: var(--white);
-  color: var(--black-0);
-  border-bottom-right-radius: 5px;
+  background: linear-gradient(135deg, var(--msgr-blue-1), var(--msgr-blue-2));
+  color: var(--white);
+  border-bottom-right-radius: var(--bubble-radius-tight);
 }
 
 .msg-row.them .msg-bubble {
   background: var(--black-3);
   color: var(--white);
-  border-bottom-left-radius: 5px;
+  border-bottom-left-radius: var(--bubble-radius-tight);
 }
+
+/* Grouped seams: flatten the corner that touches the neighboring
+   bubble from the same sender, so a run of messages reads as one
+   continuous shape rather than separate rounded pills. */
+.msg-row.me.grouped-next .msg-bubble { border-bottom-right-radius: var(--bubble-radius); }
+.msg-row.me.grouped-prev .msg-bubble { border-top-right-radius: 6px; }
+.msg-row.them.grouped-next .msg-bubble { border-bottom-left-radius: var(--bubble-radius); }
+.msg-row.them.grouped-prev .msg-bubble { border-top-left-radius: 6px; }
 
 .msg-meta {
   font-size: 10px;
@@ -312,7 +364,7 @@ html, body {
   align-items: center;
 }
 
-.msg-row.me .msg-meta { color: rgba(0,0,0,0.45); justify-content: flex-end; }
+.msg-row.me .msg-meta { color: rgba(255,255,255,0.75); justify-content: flex-end; }
 .msg-row.them .msg-meta { color: var(--gray-2); }
 
 .reaction-trigger {
@@ -340,60 +392,87 @@ html, body {
 
 .reaction-picker {
   position: absolute;
-  top: -46px;
+  top: -56px;
   background: var(--black-3);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 6px;
+  padding: 7px 8px;
   display: flex;
-  gap: 2px;
+  gap: 3px;
   z-index: 10;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.55);
+  animation: pickerIn 0.16s cubic-bezier(.34, 1.56, .64, 1) backwards;
+}
+
+@keyframes pickerIn {
+  from { opacity: 0; transform: scale(0.7) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .msg-row.me .reaction-picker { right: 0; }
 .msg-row.them .reaction-picker { left: 0; }
 
 .reaction-picker button {
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border: none;
   background: transparent;
-  font-size: 16px;
+  font-size: 20px;
   border-radius: 50%;
   cursor: pointer;
-  transition: transform 0.1s ease, background 0.1s ease;
+  transition: transform 0.14s cubic-bezier(.34, 1.56, .64, 1), background 0.1s ease;
+  animation: reactionPop 0.24s cubic-bezier(.34, 1.56, .64, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 18ms);
+}
+
+@keyframes reactionPop {
+  from { opacity: 0; transform: scale(0.3) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .reaction-picker button:hover {
   background: rgba(255,255,255,0.1);
-  transform: scale(1.2);
+  transform: scale(1.45) translateY(-6px);
 }
 
+.reaction-picker button:active {
+  transform: scale(1.1) translateY(-2px);
+}
+
+/* Sits inside .msg-bubble-wrap (position: relative) so it can overlap
+   the bottom corner of the bubble, Messenger-style, instead of taking
+   up its own row underneath. */
 .reaction-row {
+  position: absolute;
+  bottom: -9px;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
+  gap: 3px;
+  z-index: 2;
 }
+
+.msg-row.me .reaction-row { right: 6px; }
+.msg-row.them .reaction-row { left: 6px; }
 
 .reaction-chip {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: 3px;
+  padding: 2px 7px;
   border-radius: 999px;
   font-size: 11px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--black-1);
   background: var(--black-2);
   color: var(--white);
   cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+  animation: reactionPop 0.2s cubic-bezier(.34, 1.56, .64, 1) backwards;
 }
 
 .reaction-chip.mine {
-  background: var(--white);
-  color: var(--black-0);
-  border-color: var(--white);
+  background: linear-gradient(135deg, var(--msgr-blue-1), var(--msgr-blue-2));
+  color: var(--white);
+  border-color: var(--msgr-blue-2);
 }
 
 .system-line {

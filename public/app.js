@@ -80,6 +80,12 @@
   let replyTarget = null; // { id, name, text, image }
   let editingId = null;
 
+  // Consecutive messages from the same sender within this window are
+  // visually grouped (Messenger-style): tightened spacing, flattened
+  // seam corners, and the name/avatar shown only once per group.
+  const GROUP_WINDOW_MS = 5 * 60 * 1000;
+  let lastRenderedId = null;
+
   const NAME_COLORS = ["#7dd3fc", "#a78bfa", "#f472b6", "#fb923c", "#34d399", "#facc15", "#60a5fa", "#f87171"];
   function colorForName(name) {
     let hash = 0;
@@ -104,6 +110,7 @@
   }
 
   function renderSystem(text) {
+    lastRenderedId = null;
     const el = document.createElement("div");
     el.className = "system-line";
     el.textContent = text;
@@ -114,6 +121,7 @@
   // Same as renderSystem, but returns the element so the caller can remove
   // or update it later — used for transient "Sending…" style status lines.
   function renderStatus(text) {
+    lastRenderedId = null;
     const el = document.createElement("div");
     el.className = "system-line";
     el.textContent = text;
@@ -126,6 +134,7 @@
   // label — used for video compression, where a bare percentage in text
   // was easy to miss.
   function renderProgressStatus(text) {
+    lastRenderedId = null;
     const el = document.createElement("div");
     el.className = "system-line system-line-progress";
     const label = document.createElement("span");
@@ -152,14 +161,19 @@
   function reactionsHtml(id, reactions) {
     const entries = Object.entries(reactions || {});
     if (entries.length === 0) return "";
-    return `<div class="reaction-row">${entries
+    return entries
       .map(([emoji, users]) => {
         const mine = users.includes(myName);
         return `<button class="reaction-chip ${mine ? "mine" : ""}" data-react-id="${id}" data-emoji="${emoji}">
           <span>${emoji}</span><span>${users.length}</span>
         </button>`;
       })
-      .join("")}</div>`;
+      .join("");
+  }
+
+  function avatarHtml(name) {
+    const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
+    return `<div class="msg-avatar" style="background:${colorForName(name)}">${escapeHtml(initial)}</div>`;
   }
 
   function replyQuoteHtml(replyTo) {
@@ -195,15 +209,26 @@
     setTimeout(() => row.classList.remove("jump-flash"), 1000);
   }
 
-  function buildRowInnerHtml(msg) {
+  // groupedPrev: this message immediately follows one from the same
+  // sender (hide name/avatar, flatten the top seam).
+  // groupedNext: another message from the same sender immediately
+  // follows this one (hide the timestamp, flatten the bottom seam).
+  function buildRowInnerHtml(msg, groupedPrev, groupedNext) {
     const isMe = msg.name === myName;
+    const avatar = !isMe && !groupedNext ? avatarHtml(msg.name) : !isMe ? `<div class="msg-avatar"></div>` : "";
+    const nameLabel = !isMe && !groupedPrev
+      ? `<p class="msg-name" style="color:${colorForName(msg.name)}">${escapeHtml(msg.name)}</p>`
+      : "";
 
     if (msg.deleted) {
       return `
-        ${!isMe ? `<p class="msg-name" style="color:${colorForName(msg.name)}">${escapeHtml(msg.name)}</p>` : ""}
-        <div class="msg-bubble-wrap">
-          <div class="msg-bubble msg-bubble-deleted">
-            <span>🚫 This message was deleted</span>
+        ${avatar}
+        <div class="msg-col">
+          ${nameLabel}
+          <div class="msg-bubble-wrap">
+            <div class="msg-bubble msg-bubble-deleted">
+              <span>🚫 This message was deleted</span>
+            </div>
           </div>
         </div>
       `;
@@ -229,36 +254,60 @@
     if (jumbo) bubbleClasses.push("msg-bubble-jumbo");
 
     const editedTag = msg.edited ? `<span class="edited-tag">edited</span>` : "";
+    // Messenger only shows the timestamp on the last bubble of a group.
+    const metaHtml = groupedNext ? "" : `<div class="msg-meta">${editedTag}<span>${fmtTime(msg.time)}</span></div>`;
 
     return `
-      ${!isMe ? `<p class="msg-name" style="color:${colorForName(msg.name)}">${escapeHtml(msg.name)}</p>` : ""}
-      <div class="msg-bubble-wrap">
-        <div class="${bubbleClasses.join(" ")}" data-toggle-picker="${msg.id}">
-          ${replyQuoteHtml(msg.replyTo)}
-          ${bubbleInner}
-          <div class="msg-meta">${editedTag}<span>${fmtTime(msg.time)}</span></div>
+      ${avatar}
+      <div class="msg-col">
+        ${nameLabel}
+        <div class="msg-bubble-wrap">
+          <div class="${bubbleClasses.join(" ")}" data-toggle-picker="${msg.id}">
+            ${replyQuoteHtml(msg.replyTo)}
+            ${bubbleInner}
+            ${metaHtml}
+          </div>
+          <button class="reaction-trigger" data-toggle-picker="${msg.id}">🙂</button>
+          <span class="swipe-reply-icon">↩</span>
+          <div class="reaction-row" data-reactions-for="${msg.id}">${reactionsHtml(msg.id, msg.reactions)}</div>
         </div>
-        <button class="reaction-trigger" data-toggle-picker="${msg.id}">🙂</button>
-        <span class="swipe-reply-icon">↩</span>
       </div>
-      <div data-reactions-for="${msg.id}">${reactionsHtml(msg.id, msg.reactions)}</div>
     `;
   }
 
   function renderMessage(msg) {
     messagesById.set(msg.id, msg);
+
+    const prev = lastRenderedId ? messagesById.get(lastRenderedId) : null;
+    const groupedPrev = !!(
+      prev && prev.name === msg.name && !prev.deleted && !msg.deleted && msg.time - prev.time < GROUP_WINDOW_MS
+    );
+
     const row = document.createElement("div");
-    row.className = `msg-row ${msg.name === myName ? "me" : "them"}`;
+    row.className = `msg-row ${msg.name === myName ? "me" : "them"}${groupedPrev ? " grouped-prev" : ""}`;
     row.dataset.id = msg.id;
-    row.innerHTML = buildRowInnerHtml(msg);
+    row.innerHTML = buildRowInnerHtml(msg, groupedPrev, false);
     messageList.appendChild(row);
+
+    // Tell the previous row it's no longer the last in its group.
+    if (groupedPrev) {
+      const prevRow = messageList.querySelector(`.msg-row[data-id="${lastRenderedId}"]`);
+      if (prevRow && !prevRow.classList.contains("grouped-next")) {
+        prevRow.classList.add("grouped-next");
+        prevRow.innerHTML = buildRowInnerHtml(prev, prevRow.classList.contains("grouped-prev"), true);
+      }
+    }
+
+    lastRenderedId = msg.id;
   }
 
   function updateRowInPlace(msg) {
     messagesById.set(msg.id, msg);
     const row = messageList.querySelector(`.msg-row[data-id="${msg.id}"]`);
     if (!row) return;
-    row.innerHTML = buildRowInnerHtml(msg);
+    const groupedPrev = row.classList.contains("grouped-prev");
+    const groupedNext = row.classList.contains("grouped-next");
+    row.innerHTML = buildRowInnerHtml(msg, groupedPrev, groupedNext);
   }
 
   function escapeHtml(str) {
@@ -398,7 +447,9 @@
     openPickerId = id;
     const picker = document.createElement("div");
     picker.className = "reaction-picker";
-    picker.innerHTML = QUICK_REACTIONS.map((e) => `<button data-pick="${e}">${e}</button>`).join("");
+    picker.innerHTML = QUICK_REACTIONS.map(
+      (e, i) => `<button data-pick="${e}" style="--i:${i}">${e}</button>`
+    ).join("");
     anchorEl.closest(".msg-bubble-wrap").appendChild(picker);
 
     picker.querySelectorAll("button[data-pick]").forEach((btn) => {
