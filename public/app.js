@@ -47,6 +47,10 @@
   const startChatBtn = document.getElementById("start-chat-btn");
   const roomNameInput = document.getElementById("room-name-input");
   const createRoomBtn = document.getElementById("create-room-btn");
+  const roomVisibilityEveryone = document.getElementById("room-visibility-everyone");
+  const roomVisibilitySelected = document.getElementById("room-visibility-selected");
+  const roomVisibilityHint = document.getElementById("room-visibility-hint");
+  const roomMemberListEl = document.getElementById("room-member-list");
 
   // Search UI
   const searchBtn = document.getElementById("search-btn");
@@ -91,6 +95,25 @@
       document.title = baseTitle;
     }
   });
+
+  // Fallback for browsers that don't yet support interactive-widget=resizes-content
+  // (set on the viewport meta tag). Without it, opening the keyboard on some
+  // mobile browsers shrinks only the *visual* viewport, not the layout one —
+  // so the page tries to scroll the focused input into view and the header
+  // (top of a 100dvh-tall screen) gets pushed off-screen. This keeps a real
+  // pixel height in sync via --app-height and keeps the page pinned to the top.
+  function syncAppHeight() {
+    const vv = window.visualViewport;
+    const h = vv ? vv.height : window.innerHeight;
+    document.documentElement.style.setProperty("--app-height", `${h}px`);
+    window.scrollTo(0, 0);
+  }
+  syncAppHeight();
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", syncAppHeight);
+    window.visualViewport.addEventListener("scroll", syncAppHeight);
+  }
+  window.addEventListener("resize", syncAppHeight);
   // Only one video should ever play (and make sound) at a time. "play" doesn't
   // bubble, so this listener is attached with capture=true on the document —
   // whenever any <video> starts playing, pause every other one.
@@ -124,6 +147,8 @@
   const conversationsMeta = new Map(); // id -> { id, type, name, members, lastMessage, unread }
   let directory = []; // known usernames, excluding myName
   const selectedMembers = new Set();
+  const selectedRoomMembers = new Set();
+  let roomVisibility = "everyone"; // "everyone" | "selected"
   let onlineNames = [];
 
   // Consecutive messages from the same sender within this window are
@@ -322,9 +347,11 @@
     groupNameInput.value = "";
     groupNameInput.classList.add("hidden");
     roomNameInput.value = "";
+    selectedRoomMembers.clear();
     startChatBtn.disabled = true;
     createRoomBtn.disabled = true;
     setNewChatTab("message");
+    setRoomVisibility("everyone");
     renderMemberList();
     newChatModal.classList.remove("hidden");
   }
@@ -336,17 +363,29 @@
     roomMode.classList.toggle("hidden", mode !== "room");
   }
 
-  function renderMemberList() {
-    const q = memberSearch.value.trim().toLowerCase();
-    const names = directory.filter((n) => n.toLowerCase().includes(q));
-    memberListEl.innerHTML = "";
+  function setRoomVisibility(mode) {
+    roomVisibility = mode;
+    roomVisibilityEveryone.classList.toggle("active", mode === "everyone");
+    roomVisibilitySelected.classList.toggle("active", mode === "selected");
+    roomMemberListEl.classList.toggle("hidden", mode !== "selected");
+    roomVisibilityHint.textContent =
+      mode === "everyone"
+        ? "Anyone in Tycept can find and join a room."
+        : "Only the people you select will be able to see and join this room.";
+    if (mode === "selected") renderRoomMemberList();
+  }
+
+  // Shared row renderer used by both the message-mode member picker and the
+  // room-mode private member picker — same look, different target set/list.
+  function renderMemberRows(containerEl, names, selectedSet, onToggle) {
+    containerEl.innerHTML = "";
     if (names.length === 0) {
-      memberListEl.innerHTML = `<p class="member-list-empty">No one else here yet — share the link with a friend.</p>`;
+      containerEl.innerHTML = `<p class="member-list-empty">No one else here yet — share the link with a friend.</p>`;
       return;
     }
     names.forEach((n, i) => {
       const row = document.createElement("div");
-      row.className = `member-row${selectedMembers.has(n) ? " selected" : ""}`;
+      row.className = `member-row${selectedSet.has(n) ? " selected" : ""}`;
       row.style.setProperty("--row-i", Math.min(i, 10));
       const initial = n.trim().charAt(0).toUpperCase() || "?";
       const isOnline = onlineNames.includes(n);
@@ -359,14 +398,28 @@
         <span class="member-row-status">${isOnline ? "online" : "offline"}</span>
         <span class="member-checkbox"></span>
       `;
-      row.addEventListener("click", () => {
-        if (selectedMembers.has(n)) selectedMembers.delete(n);
-        else selectedMembers.add(n);
-        renderMemberList();
-        groupNameInput.classList.toggle("hidden", selectedMembers.size <= 1);
-        startChatBtn.disabled = selectedMembers.size === 0;
-      });
-      memberListEl.appendChild(row);
+      row.addEventListener("click", () => onToggle(n));
+      containerEl.appendChild(row);
+    });
+  }
+
+  function renderMemberList() {
+    const q = memberSearch.value.trim().toLowerCase();
+    const names = directory.filter((n) => n.toLowerCase().includes(q));
+    renderMemberRows(memberListEl, names, selectedMembers, (n) => {
+      if (selectedMembers.has(n)) selectedMembers.delete(n);
+      else selectedMembers.add(n);
+      renderMemberList();
+      groupNameInput.classList.toggle("hidden", selectedMembers.size <= 1);
+      startChatBtn.disabled = selectedMembers.size === 0;
+    });
+  }
+
+  function renderRoomMemberList() {
+    renderMemberRows(roomMemberListEl, directory, selectedRoomMembers, (n) => {
+      if (selectedRoomMembers.has(n)) selectedRoomMembers.delete(n);
+      else selectedRoomMembers.add(n);
+      renderRoomMemberList();
     });
   }
 
@@ -379,6 +432,10 @@
   tabMessage && tabMessage.addEventListener("click", () => setNewChatTab("message"));
   tabRoom && tabRoom.addEventListener("click", () => setNewChatTab("room"));
   memberSearch && memberSearch.addEventListener("input", renderMemberList);
+  roomVisibilityEveryone &&
+    roomVisibilityEveryone.addEventListener("click", () => setRoomVisibility("everyone"));
+  roomVisibilitySelected &&
+    roomVisibilitySelected.addEventListener("click", () => setRoomVisibility("selected"));
   roomNameInput &&
     roomNameInput.addEventListener("input", () => {
       createRoomBtn.disabled = !roomNameInput.value.trim();
@@ -408,8 +465,14 @@
     createRoomBtn.addEventListener("click", () => {
       const name = roomNameInput.value.trim();
       if (!socket || !name) return;
+      if (roomVisibility === "selected" && selectedRoomMembers.size === 0) {
+        renderSystem("Select at least one person, or switch to Everyone.");
+        return;
+      }
       createRoomBtn.disabled = true;
-      socket.emit("create-conversation", { type: "room", name }, (res) => {
+      const payload = { type: "room", name };
+      if (roomVisibility === "selected") payload.members = Array.from(selectedRoomMembers);
+      socket.emit("create-conversation", payload, (res) => {
         createRoomBtn.disabled = false;
         if (!res || res.error) {
           renderSystem("Couldn't create that room.");

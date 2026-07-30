@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
 <title>tyce-Chat</title>
 <link rel="stylesheet" href="style.css" />
 <style>
@@ -85,7 +85,12 @@
 
       <div id="room-mode" class="new-chat-mode hidden">
         <input id="room-name-input" class="name-input new-chat-input" maxlength="40" placeholder="Room name, e.g. Random" autocomplete="off" />
-        <p class="new-chat-hint">Anyone in Tycept can find and join a room.</p>
+        <div class="room-visibility-tabs">
+          <button id="room-visibility-everyone" class="room-visibility-tab active" type="button" data-visibility="everyone">Everyone</button>
+          <button id="room-visibility-selected" class="room-visibility-tab" type="button" data-visibility="selected">Selected people</button>
+        </div>
+        <p id="room-visibility-hint" class="new-chat-hint">Anyone in Tycept can find and join a room.</p>
+        <div id="room-member-list" class="member-list hidden"></div>
         <button id="create-room-btn" class="btn-primary" disabled>Create room</button>
       </div>
     </div>

@@ -52,6 +52,7 @@ html, body {
 
 .screen {
   height: 100dvh;
+  height: var(--app-height, 100dvh);
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -1538,6 +1539,32 @@ html, body {
   gap: 10px;
 }
 
+.room-visibility-tabs {
+  display: flex;
+  gap: 8px;
+  background: var(--black-2);
+  border-radius: var(--radius-md);
+  padding: 4px;
+}
+
+.room-visibility-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--gray-1);
+  padding: 8px 0;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.room-visibility-tab.active {
+  background: var(--white);
+  color: var(--black-0);
+}
+
 .new-chat-input { width: 100%; }
 
 .new-chat-hint {
@@ -1662,6 +1689,7 @@ html, body {
 }
 
 .new-chat-tab:active { transform: scale(0.95); }
+.room-visibility-tab:active { transform: scale(0.95); }
 
 .conversation-list .conv-item:active {
   transform: scale(0.98);
