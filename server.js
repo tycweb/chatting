@@ -136,8 +136,9 @@ async function uploadMedia(dataUrl, folder) {
 // ---------------------------------------------------------------------------
 // conversations: id -> { id, type: 'room'|'dm'|'group', name, members: [name],
 //                         history: [msg], createdAt }
-// 'room' conversations are public (members is [] and means "everyone").
-// 'dm'/'group' conversations are private to their members list.
+// 'room' conversations with an empty members list are public ("everyone").
+// A 'room' with a non-empty members list is private — only those people can
+// see/join it, same as 'dm'/'group', which are always private to their members.
 const conversations = new Map();
 const knownUsers = new Set(); // every name that has ever joined — the "directory"
 const onlineUsers = new Map(); // socket.id -> name
@@ -383,7 +384,8 @@ function broadcastDirectory() {
 
 function isMember(conv, name) {
   if (!conv) return false;
-  return conv.type === "room" || conv.members.includes(name);
+  if (conv.type === "room" && conv.members.length === 0) return true; // public room — everyone's a member
+  return conv.members.includes(name);
 }
 
 function buildReplySnapshot(conv, rawReplyTo) {
@@ -553,12 +555,39 @@ io.on("connection", (socket) => {
     if (type === "room") {
       const cleanName = sanitize(payload.name).slice(0, MAX_CONV_NAME_LENGTH);
       if (!cleanName) return reply({ error: "name-required" });
+
+      // Optional members list makes this a private room (only these people can
+      // see/join it). No members (or just yourself) means a public room that
+      // everyone in Tycept can find and join, same as before.
+      let roomMembers = Array.isArray(payload.members) ? payload.members : [];
+      roomMembers = roomMembers.map((m) => sanitize(m).slice(0, MAX_NAME_LENGTH)).filter(Boolean);
+      roomMembers = Array.from(new Set([...roomMembers, name]));
+      roomMembers = roomMembers.filter((m) => knownUsers.has(m));
+      if (roomMembers.length > MAX_GROUP_MEMBERS) return reply({ error: "too-many-members" });
+
+      const isPrivateRoom = roomMembers.length > 1;
+      const finalMembers = isPrivateRoom ? roomMembers : [];
+
       const id = `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const conv = { id, type: "room", name: cleanName, members: [], history: [], createdAt: Date.now() };
+      const conv = { id, type: "room", name: cleanName, members: finalMembers, history: [], createdAt: Date.now() };
       conversations.set(id, conv);
-      // Every currently-connected socket can see public rooms.
-      for (const [, s] of io.sockets.sockets) s.join(id);
-      io.emit("conversation-created", summarize(conv));
+
+      if (isPrivateRoom) {
+        for (const m of finalMembers) {
+          const set = socketsByName.get(m);
+          if (!set) continue;
+          for (const sid of set) {
+            const s = io.sockets.sockets.get(sid);
+            if (s) s.join(id);
+          }
+        }
+        io.to(id).emit("conversation-created", summarize(conv));
+      } else {
+        // Every currently-connected socket can see public rooms.
+        for (const [, s] of io.sockets.sockets) s.join(id);
+        io.emit("conversation-created", summarize(conv));
+      }
+
       saveConversationToRedis(id);
       saveMetaToRedis();
       return reply(summarize(conv));
