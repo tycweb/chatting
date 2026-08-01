@@ -52,6 +52,15 @@
   const roomVisibilityHint = document.getElementById("room-visibility-hint");
   const roomMemberListEl = document.getElementById("room-member-list");
 
+  // Add people (to an existing dm/group) UI
+  const addPeopleBtn = document.getElementById("add-people-btn");
+  const addMembersModal = document.getElementById("add-members-modal");
+  const addMembersClose = document.getElementById("add-members-close");
+  const addMembersSearch = document.getElementById("add-members-search");
+  const addMembersList = document.getElementById("add-members-list");
+  const addMembersError = document.getElementById("add-members-error");
+  const addMembersConfirmBtn = document.getElementById("add-members-confirm-btn");
+
   // Search UI
   const searchBtn = document.getElementById("search-btn");
   const searchBar = document.getElementById("search-bar");
@@ -155,6 +164,7 @@
   let directory = []; // known usernames, excluding myName
   const selectedMembers = new Set();
   const selectedRoomMembers = new Set();
+  const selectedAddMembers = new Set();
   let roomVisibility = "everyone"; // "everyone" | "selected"
   let onlineNames = [];
 
@@ -355,6 +365,7 @@
           ? "👥"
           : conversationTitle(cachedConv).charAt(0).toUpperCase();
     }
+    updateAddPeopleVisibility(cachedConv);
     presenceLine.textContent = "connecting…";
     conversationsScreen.classList.add("hidden");
     chatScreen.classList.remove("hidden");
@@ -383,6 +394,7 @@
       chatTitle.textContent = conversationTitle(conv);
       chatTitleAvatar.textContent =
         conv.type === "room" ? "#" : conv.type === "group" ? "👥" : conversationTitle(conv).charAt(0).toUpperCase();
+      updateAddPeopleVisibility(conv);
       if (conv.type === "room") {
         presenceLine.textContent = "public room";
       } else if (conv.type === "group") {
@@ -496,6 +508,72 @@
       renderRoomMemberList();
     });
   }
+
+  // ---------- Add people (to an existing dm/group) ----------
+
+  function closeAddMembersModal() {
+    addMembersModal.classList.add("hidden");
+  }
+
+  function openAddMembersModal() {
+    if (!currentConversationId) return;
+    selectedAddMembers.clear();
+    addMembersSearch.value = "";
+    addMembersError.textContent = "";
+    addMembersConfirmBtn.disabled = true;
+    renderAddMembersList();
+    addMembersModal.classList.remove("hidden");
+  }
+
+  function renderAddMembersList() {
+    const conv = conversationsMeta.get(currentConversationId);
+    const existing = new Set(conv ? conv.members || [] : []);
+    const q = addMembersSearch.value.trim().toLowerCase();
+    const names = directory.filter((n) => !existing.has(n) && n.toLowerCase().includes(q));
+    renderMemberRows(addMembersList, names, selectedAddMembers, (n) => {
+      if (selectedAddMembers.has(n)) selectedAddMembers.delete(n);
+      else selectedAddMembers.add(n);
+      renderAddMembersList();
+      addMembersConfirmBtn.disabled = selectedAddMembers.size === 0;
+    });
+  }
+
+  // Shows/hides the header "add people" button — only dm/group chats
+  // support adding more people; public/private rooms don't need it since
+  // rooms already work by everyone (or the invited list) joining directly.
+  function updateAddPeopleVisibility(conv) {
+    const show = !!conv && (conv.type === "dm" || conv.type === "group");
+    addPeopleBtn && addPeopleBtn.classList.toggle("hidden", !show);
+  }
+
+  addPeopleBtn && addPeopleBtn.addEventListener("click", openAddMembersModal);
+  addMembersClose && addMembersClose.addEventListener("click", closeAddMembersModal);
+  addMembersModal &&
+    addMembersModal.addEventListener("click", (e) => {
+      if (e.target === addMembersModal) closeAddMembersModal();
+    });
+  addMembersSearch && addMembersSearch.addEventListener("input", renderAddMembersList);
+  addMembersConfirmBtn &&
+    addMembersConfirmBtn.addEventListener("click", () => {
+      if (!socket || !currentConversationId || selectedAddMembers.size === 0) return;
+      addMembersConfirmBtn.disabled = true;
+      addMembersError.textContent = "";
+      socket.emit(
+        "add-members",
+        { conversationId: currentConversationId, members: Array.from(selectedAddMembers) },
+        (res) => {
+          if (!res || res.error) {
+            addMembersConfirmBtn.disabled = false;
+            addMembersError.textContent =
+              res && res.error === "too-many-members"
+                ? "That chat is already at the member limit."
+                : "Couldn't add them. Try again.";
+            return;
+          }
+          closeAddMembersModal();
+        }
+      );
+    });
 
   newChatBtn && newChatBtn.addEventListener("click", openNewChatModal);
   newChatClose && newChatClose.addEventListener("click", closeNewChatModal);
@@ -1534,6 +1612,26 @@
 
     socket.on("conversation-created", (conv) => {
       upsertConversation(conv);
+    });
+
+    // Fired when someone adds people to a dm/group (a dm may have just
+    // become a group). Refresh the list entry, and if it's the chat
+    // currently open, refresh the header too since the title/type/member
+    // count may have changed.
+    socket.on("conversation-updated", (conv) => {
+      upsertConversation(conv);
+      if (conv.id !== currentConversationId) return;
+      chatTitle.textContent = conversationTitle(conv);
+      chatTitleAvatar.textContent =
+        conv.type === "room" ? "#" : conv.type === "group" ? "👥" : conversationTitle(conv).charAt(0).toUpperCase();
+      updateAddPeopleVisibility(conv);
+      if (conv.type === "room") {
+        presenceLine.textContent = "public room";
+      } else if (conv.type === "group") {
+        presenceLine.textContent = `${(conv.members || []).length} people`;
+      } else {
+        updateDmPresence(conv);
+      }
     });
 
     socket.on("directory", (names) => {

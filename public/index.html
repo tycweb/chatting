@@ -96,6 +96,21 @@
     </div>
   </div>
 
+  <!-- Add people modal (for existing dm/group chats) -->
+  <div id="add-members-modal" class="new-chat-modal hidden">
+    <div class="new-chat-card">
+      <div class="new-chat-head">
+        <p class="new-chat-title">Add people</p>
+        <button id="add-members-close" class="new-chat-close" type="button">✕</button>
+      </div>
+      <input id="add-members-search" class="name-input new-chat-input" placeholder="Search people…" autocomplete="off" />
+      <p class="new-chat-hint">They'll be added to this chat and can see new messages from now on.</p>
+      <div id="add-members-list" class="member-list"></div>
+      <p id="add-members-error" class="join-error"></p>
+      <button id="add-members-confirm-btn" class="btn-primary" disabled>Add to chat</button>
+    </div>
+  </div>
+
   <!-- Chat screen -->
   <div id="chat-screen" class="screen chat-screen hidden">
     <header class="chat-header">
@@ -110,6 +125,9 @@
         </div>
       </div>
       <div class="header-right">
+        <button id="add-people-btn" class="icon-btn hidden" aria-label="Add people" type="button">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/></svg>
+        </button>
         <button id="search-btn" class="icon-btn" aria-label="Search messages" type="button">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
         </button>
