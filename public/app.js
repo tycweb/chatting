@@ -1017,7 +1017,9 @@
 
   function closePicker() {
     const existing = document.querySelector(".reaction-picker");
+    const backdrop = document.querySelector(".reaction-picker-backdrop");
     if (existing) existing.remove();
+    if (backdrop) backdrop.remove();
     openPickerId = null;
     closeEmojiGrid();
   }
@@ -1025,12 +1027,37 @@
   function openPicker(id, anchorEl) {
     closePicker();
     openPickerId = id;
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "reaction-picker-backdrop";
+    backdrop.addEventListener("click", closePicker);
+    document.body.appendChild(backdrop);
+
     const picker = document.createElement("div");
     picker.className = "reaction-picker";
     picker.innerHTML =
       QUICK_REACTIONS.map((e, i) => `<button data-pick="${e}" style="--i:${i}">${e}</button>`).join("") +
       `<button class="reaction-picker-more" data-more="1" style="--i:${QUICK_REACTIONS.length}" aria-label="More emoji">+</button>`;
-    anchorEl.closest(".msg-bubble-wrap").appendChild(picker);
+    document.body.appendChild(picker);
+
+    // Anchor to the bubble, then clamp inside the viewport so the picker
+    // (now wider with the "+" button) never renders off-screen — it used to
+    // be positioned absolute inside the bubble itself, which pushed it past
+    // the edge of the phone screen on "me" messages.
+    const wrap = anchorEl.closest(".msg-bubble-wrap") || anchorEl;
+    const wrapRect = wrap.getBoundingClientRect();
+    const pickerRect = picker.getBoundingClientRect();
+    const margin = 8;
+    const isMe = !!anchorEl.closest(".msg-row.me");
+
+    let left = isMe ? wrapRect.right - pickerRect.width : wrapRect.left;
+    left = Math.min(Math.max(left, margin), window.innerWidth - pickerRect.width - margin);
+
+    let top = wrapRect.top - pickerRect.height - 10;
+    if (top < margin) top = Math.min(wrapRect.bottom + 10, window.innerHeight - pickerRect.height - margin);
+
+    picker.style.left = `${left}px`;
+    picker.style.top = `${top}px`;
 
     picker.querySelectorAll("button[data-pick]").forEach((btn) => {
       btn.addEventListener("click", (e) => {
@@ -1526,7 +1553,8 @@
     readersByMessageId.forEach((names, msgId) => {
       const row = messageList.querySelector(`.msg-row[data-id="${msgId}"]`);
       const wrap = row && row.querySelector(".msg-bubble-wrap");
-      if (!wrap) return;
+      const col = wrap && wrap.closest(".msg-col");
+      if (!wrap || !col) return;
       const marker = document.createElement("div");
       marker.className = "read-receipt";
       if (conv.type === "group" || conv.type === "room") {
@@ -1538,7 +1566,10 @@
       } else {
         marker.innerHTML = `<span class="read-receipt-avatar" style="background:${colorForName(names[0])}">${escapeHtml(names[0].trim().charAt(0).toUpperCase())}</span>`;
       }
-      wrap.appendChild(marker);
+      // Placed right after the wrap, in normal flow — never overlaps
+      // the reaction row (which is absolutely positioned) or the next
+      // message bubble below it.
+      wrap.insertAdjacentElement("afterend", marker);
     });
   }
 

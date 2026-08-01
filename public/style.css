@@ -453,16 +453,23 @@ html, body {
   .msg-bubble-wrap:hover .reaction-trigger { display: flex; }
 }
 
+.reaction-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  background: transparent;
+}
+
 .reaction-picker {
-  position: absolute;
-  top: -56px;
+  position: fixed;
   background: var(--black-3);
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 7px 8px;
   display: flex;
   gap: 3px;
-  z-index: 10;
+  z-index: 9998;
+  max-width: calc(100vw - 16px);
   box-shadow: 0 10px 28px rgba(0,0,0,0.55);
   animation: pickerIn 0.16s cubic-bezier(.34, 1.56, .64, 1) backwards;
 }
@@ -471,9 +478,6 @@ html, body {
   from { opacity: 0; transform: scale(0.7) translateY(6px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
-
-.msg-row.me .reaction-picker { right: 0; }
-.msg-row.them .reaction-picker { left: 0; }
 
 .reaction-picker button {
   width: 34px;
@@ -1925,17 +1929,14 @@ html, body {
 /* ---------- Read receipts ---------- */
 
 .read-receipt {
-  position: absolute;
-  bottom: -9px;
   display: flex;
   align-items: center;
   gap: 2px;
-  z-index: 1;
+  margin-top: 3px;
 }
 
-.msg-row.me .read-receipt { right: 0; }
-.msg-row.them .read-receipt { left: 0; }
-.msg-bubble-wrap:has(.reaction-row:not(:empty)) .read-receipt { bottom: -22px; }
+.msg-row.me .read-receipt { align-self: flex-end; margin-right: 2px; }
+.msg-row.them .read-receipt { align-self: flex-start; margin-left: 2px; }
 
 .read-receipt-avatar {
   width: 14px;
