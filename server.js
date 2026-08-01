@@ -449,9 +449,24 @@ function conversationTitle(conv) {
   return ""; // dm / unnamed group — client fills in from members + myName
 }
 
-function summarize(conv) {
+// How many messages in this conversation came in after `forName` last read
+// it, and weren't sent by them. History is chronological, so we can walk
+// backwards and stop as soon as we hit something already read.
+function countUnread(conv, forName) {
+  const reads = conv.reads || {};
+  const lastReadTime = reads[forName] ? reads[forName].time : 0;
+  let count = 0;
+  for (let i = conv.history.length - 1; i >= 0; i--) {
+    const m = conv.history[i];
+    if (m.time <= lastReadTime) break;
+    if (m.name !== forName && !m.deleted) count++;
+  }
+  return count;
+}
+
+function summarize(conv, forName) {
   const last = conv.history[conv.history.length - 1];
-  return {
+  const result = {
     id: conv.id,
     type: conv.type,
     name: conversationTitle(conv),
@@ -469,12 +484,17 @@ function summarize(conv) {
         }
       : null,
   };
+  // Only computed (and included) when we know who's asking — broadcasts to
+  // a whole room stay as they were so they don't clobber each client's own
+  // locally-tracked unread count with a one-size-fits-all value.
+  if (forName) result.unread = countUnread(conv, forName);
+  return result;
 }
 
 function conversationsForUser(name) {
   const list = [];
   for (const conv of conversations.values()) {
-    if (isMember(conv, name)) list.push(summarize(conv));
+    if (isMember(conv, name)) list.push(summarize(conv, name));
   }
   return list;
 }
@@ -718,7 +738,7 @@ io.on("connection", (socket) => {
 
       saveConversationToRedis(id);
       saveMetaToRedis();
-      return reply(summarize(conv));
+      return reply(summarize(conv, name));
     }
 
     // dm / group
@@ -733,7 +753,7 @@ io.on("connection", (socket) => {
 
     if (resolvedType === "dm") {
       const existing = findExistingDm(members);
-      if (existing) return reply(summarize(existing));
+      if (existing) return reply(summarize(existing, name));
     }
 
     const cleanName =
