@@ -1,6 +1,20 @@
 (() => {
   const QUICK_REACTIONS = ["😎", "😂", "😮", "😢", "🙏", "👍", "🔥", "🗿"];
 
+  // Full palette for the expanded emoji picker (tapped from the "+" button
+  // on the quick-reaction bar). Grouped loosely by category.
+  const EMOJI_PALETTE = [
+    "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😜", "🤪", "🤔",
+    "😎", "🥳", "🥺", "😭", "😢", "😡", "🤬", "😱", "😴", "🤯",
+    "🙃", "😇", "🤗", "🤫", "🙄", "😏", "🤩", "🥰", "😳", "🤤",
+    "👍", "👎", "👏", "🙌", "🙏", "💪", "🤝", "👌", "✌️", "🤞",
+    "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "💔", "💯",
+    "🔥", "✨", "🎉", "🎊", "🥳", "😈", "👻", "💀", "🤡", "🗿",
+    "🐶", "🐱", "🦁", "🐸", "🐵", "🦄", "🐷", "🐧", "🦋", "🐢",
+    "🍕", "🍔", "🍟", "🌮", "🍩", "🍦", "☕", "🍺", "🎂", "🍎",
+    "⚽", "🏀", "🎮", "🎵", "📸", "🚀", "💰", "⭐", "☀️", "🌈",
+  ];
+
   const joinScreen = document.getElementById("join-screen");
   const conversationsScreen = document.getElementById("conversations-screen");
   const chatScreen = document.getElementById("chat-screen");
@@ -24,6 +38,7 @@
   const jumpCount = document.getElementById("jump-count");
   const jumpLabel = document.getElementById("jump-label");
   const soundToggle = document.getElementById("sound-toggle");
+  const wallpaperBtn = document.getElementById("wallpaper-btn");
   const chatHeader = document.querySelector("#chat-screen .chat-header");
 
   // Conversations list UI
@@ -167,12 +182,31 @@
   const selectedAddMembers = new Set();
   let roomVisibility = "everyone"; // "everyone" | "selected"
   let onlineNames = [];
+  let currentReads = new Map(); // name -> { messageId, time } — read receipts for the open conversation
 
   // Consecutive messages from the same sender within this window are
   // visually grouped (Messenger-style): tightened spacing, flattened
   // seam corners, and the name/avatar shown only once per group.
   const GROUP_WINDOW_MS = 5 * 60 * 1000;
   let lastRenderedId = null;
+
+  // Messenger-style per-thread "chat theme". Keys must match the server's
+  // WALLPAPER_KEYS allow-list — the server rejects anything else.
+  const WALLPAPERS = {
+    default: { swatch: "linear-gradient(135deg, #191919, #0a0a0a)", css: "none" },
+    ocean: { swatch: "linear-gradient(135deg, #0084ff, #00c6ff)", css: "linear-gradient(160deg, rgba(0,132,255,0.18), rgba(0,198,255,0.05) 60%, transparent)" },
+    sunset: { swatch: "linear-gradient(135deg, #fb923c, #f472b6)", css: "linear-gradient(160deg, rgba(251,146,60,0.16), rgba(244,114,182,0.06) 60%, transparent)" },
+    forest: { swatch: "linear-gradient(135deg, #34d399, #059669)", css: "linear-gradient(160deg, rgba(52,211,153,0.15), rgba(5,150,105,0.05) 60%, transparent)" },
+    grape: { swatch: "linear-gradient(135deg, #a78bfa, #7c3aed)", css: "linear-gradient(160deg, rgba(167,139,250,0.18), rgba(124,58,237,0.06) 60%, transparent)" },
+    candy: { swatch: "linear-gradient(135deg, #f472b6, #fb7185)", css: "linear-gradient(160deg, rgba(244,114,182,0.16), rgba(251,113,133,0.06) 60%, transparent)" },
+    mono: { swatch: "linear-gradient(135deg, #8a8a8a, #3a3a3a)", css: "linear-gradient(160deg, rgba(255,255,255,0.06), transparent 60%)" },
+    fire: { swatch: "linear-gradient(135deg, #f87171, #facc15)", css: "linear-gradient(160deg, rgba(248,113,113,0.16), rgba(250,204,21,0.06) 60%, transparent)" },
+  };
+
+  function applyWallpaper(key) {
+    const preset = WALLPAPERS[key] || WALLPAPERS.default;
+    messageList.style.backgroundImage = preset.css === "none" ? "" : preset.css;
+  }
 
   const NAME_COLORS = ["#7dd3fc", "#a78bfa", "#f472b6", "#fb923c", "#34d399", "#facc15", "#60a5fa", "#f87171"];
   function colorForName(name) {
@@ -389,7 +423,10 @@
       conv.type = res.type;
       conv.name = res.name;
       conv.members = res.members;
+      conv.wallpaper = res.wallpaper || null;
       upsertConversation(conv, { clearUnread: true });
+      applyWallpaper(conv.wallpaper);
+      currentReads = new Map(Object.entries(res.reads || {}));
 
       chatTitle.textContent = conversationTitle(conv);
       chatTitleAvatar.textContent =
@@ -404,6 +441,7 @@
       }
 
       res.history.forEach(renderMessage);
+      renderReadReceipts();
       scrollToBottom();
       messageList.querySelectorAll("img.msg-image").forEach((img) => {
         if (!img.complete) img.addEventListener("load", scrollToBottom, { once: true });
@@ -978,6 +1016,7 @@
     const existing = document.querySelector(".reaction-picker");
     if (existing) existing.remove();
     openPickerId = null;
+    closeEmojiGrid();
   }
 
   function openPicker(id, anchorEl) {
@@ -985,9 +1024,9 @@
     openPickerId = id;
     const picker = document.createElement("div");
     picker.className = "reaction-picker";
-    picker.innerHTML = QUICK_REACTIONS.map(
-      (e, i) => `<button data-pick="${e}" style="--i:${i}">${e}</button>`
-    ).join("");
+    picker.innerHTML =
+      QUICK_REACTIONS.map((e, i) => `<button data-pick="${e}" style="--i:${i}">${e}</button>`).join("") +
+      `<button class="reaction-picker-more" data-more="1" style="--i:${QUICK_REACTIONS.length}" aria-label="More emoji">+</button>`;
     anchorEl.closest(".msg-bubble-wrap").appendChild(picker);
 
     picker.querySelectorAll("button[data-pick]").forEach((btn) => {
@@ -995,6 +1034,51 @@
         e.stopPropagation();
         socket.emit("react", { conversationId: currentConversationId, id, emoji: btn.dataset.pick });
         closePicker();
+      });
+    });
+
+    const moreBtn = picker.querySelector("[data-more]");
+    if (moreBtn) {
+      moreBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openEmojiGrid(id);
+      });
+    }
+  }
+
+  // Full emoji grid, opened from the "+" on the quick-reaction bar — lets
+  // you react with any emoji in EMOJI_PALETTE, not just the pinned 8.
+  function closeEmojiGrid() {
+    const existing = document.querySelector(".emoji-grid-sheet");
+    const backdrop = document.querySelector(".emoji-grid-backdrop");
+    if (existing) existing.remove();
+    if (backdrop) backdrop.remove();
+  }
+
+  function openEmojiGrid(id) {
+    closePicker();
+    closeEmojiGrid();
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "emoji-grid-backdrop";
+    backdrop.addEventListener("click", closeEmojiGrid);
+    document.body.appendChild(backdrop);
+
+    const sheet = document.createElement("div");
+    sheet.className = "emoji-grid-sheet";
+    sheet.innerHTML = `
+      <p class="emoji-grid-title">React with</p>
+      <div class="emoji-grid">
+        ${EMOJI_PALETTE.map((e) => `<button class="emoji-grid-item" data-pick="${e}">${e}</button>`).join("")}
+      </div>
+    `;
+    document.body.appendChild(sheet);
+
+    sheet.querySelectorAll("[data-pick]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        socket.emit("react", { conversationId: currentConversationId, id, emoji: btn.dataset.pick });
+        closeEmojiGrid();
       });
     });
   }
@@ -1131,6 +1215,57 @@
 
     if (navigator.vibrate) navigator.vibrate(18);
   }
+
+  // ---------- Chat theme (wallpaper) picker ----------
+
+  function closeWallpaperPicker() {
+    const existing = document.querySelector(".wallpaper-picker");
+    const backdrop = document.querySelector(".wallpaper-picker-backdrop");
+    if (existing) existing.remove();
+    if (backdrop) backdrop.remove();
+  }
+
+  function openWallpaperPicker() {
+    if (!currentConversationId) return;
+    closePicker();
+    closeActionMenu();
+    closeWallpaperPicker();
+
+    const conv = conversationsMeta.get(currentConversationId);
+    const activeKey = (conv && conv.wallpaper) || "default";
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "wallpaper-picker-backdrop";
+    backdrop.addEventListener("click", closeWallpaperPicker);
+    document.body.appendChild(backdrop);
+
+    const picker = document.createElement("div");
+    picker.className = "wallpaper-picker";
+    picker.innerHTML = `
+      <p class="wallpaper-picker-title">Chat theme</p>
+      <div class="wallpaper-swatch-grid">
+        ${Object.keys(WALLPAPERS)
+          .map(
+            (key) => `<button class="wallpaper-swatch ${key === activeKey ? "active" : ""}" data-wallpaper="${key}"
+              style="background:${WALLPAPERS[key].swatch}" aria-label="${key} theme"></button>`
+          )
+          .join("")}
+      </div>
+    `;
+    document.body.appendChild(picker);
+
+    picker.querySelectorAll("[data-wallpaper]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.wallpaper;
+        applyWallpaper(key);
+        if (conv) conv.wallpaper = key;
+        socket.emit("set-wallpaper", { conversationId: currentConversationId, wallpaper: key });
+        closeWallpaperPicker();
+      });
+    });
+  }
+
+  wallpaperBtn.addEventListener("click", openWallpaperPicker);
 
   // ---------- Search ----------
 
@@ -1347,6 +1482,61 @@
   function updateReactionsUI(id, reactions) {
     const target = document.querySelector(`[data-reactions-for="${id}"]`);
     if (target) target.innerHTML = reactionsHtml(id, reactions);
+  }
+
+  // Messenger-style read receipts: for each other member, find the newest
+  // message I sent that they've read, and drop a small marker under it.
+  // Only the single newest read message per member gets a marker — as new
+  // messages get read the marker moves forward, it isn't stamped on every
+  // bubble along the way.
+  function renderReadReceipts() {
+    messageList.querySelectorAll(".read-receipt").forEach((el) => el.remove());
+    if (!currentConversationId || currentReads.size === 0) return;
+
+    const conv = conversationsMeta.get(currentConversationId);
+    if (!conv) return;
+    const others = otherMembers(conv);
+    if (others.length === 0) return;
+
+    // Own messages, oldest -> newest, so we can find the newest one at/under
+    // each reader's read time.
+    const ownMessages = Array.from(messagesById.values())
+      .filter((m) => m.name === myName && !m.deleted)
+      .sort((a, b) => a.time - b.time);
+    if (ownMessages.length === 0) return;
+
+    const readersByMessageId = new Map(); // messageId -> [names]
+    others.forEach((otherName) => {
+      const read = currentReads.get(otherName);
+      if (!read) return;
+      let latest = null;
+      for (const m of ownMessages) {
+        if (m.time <= read.time) latest = m;
+        else break;
+      }
+      if (!latest) return;
+      const list = readersByMessageId.get(latest.id) || [];
+      list.push(otherName);
+      readersByMessageId.set(latest.id, list);
+    });
+
+    readersByMessageId.forEach((names, msgId) => {
+      const row = messageList.querySelector(`.msg-row[data-id="${msgId}"]`);
+      const wrap = row && row.querySelector(".msg-bubble-wrap");
+      if (!wrap) return;
+      const marker = document.createElement("div");
+      marker.className = "read-receipt";
+      if (conv.type === "group" || conv.type === "room") {
+        marker.innerHTML = names
+          .slice(0, 3)
+          .map((n) => `<span class="read-receipt-avatar" style="background:${colorForName(n)}">${escapeHtml(n.trim().charAt(0).toUpperCase())}</span>`)
+          .join("");
+        if (names.length > 3) marker.innerHTML += `<span class="read-receipt-more">+${names.length - 3}</span>`;
+      } else {
+        marker.innerHTML = `<span class="read-receipt-avatar" style="background:${colorForName(names[0])}">${escapeHtml(names[0].trim().charAt(0).toUpperCase())}</span>`;
+      }
+      wrap.appendChild(marker);
+    });
   }
 
   const lightboxDownload = document.getElementById("lightbox-download");
@@ -1569,6 +1759,9 @@
         }
 
         if (!isMe) playPop(wasNearBottom ? 720 : 520);
+        if (!isMe && !document.hidden) {
+          socket.emit("mark-read", { conversationId: msg.conversationId, messageId: msg.id });
+        }
       } else if (!isMe) {
         playPop(420);
       }
@@ -1625,6 +1818,7 @@
       chatTitleAvatar.textContent =
         conv.type === "room" ? "#" : conv.type === "group" ? "👥" : conversationTitle(conv).charAt(0).toUpperCase();
       updateAddPeopleVisibility(conv);
+      applyWallpaper(conv.wallpaper);
       if (conv.type === "room") {
         presenceLine.textContent = "public room";
       } else if (conv.type === "group") {
@@ -1632,6 +1826,16 @@
       } else {
         updateDmPresence(conv);
       }
+    });
+
+    // Someone read up to a point in the open conversation — advance their
+    // marker and redraw the "seen" indicator.
+    socket.on("read-receipt", ({ conversationId, name, messageId, time }) => {
+      if (conversationId !== currentConversationId) return;
+      const existing = currentReads.get(name);
+      if (existing && existing.time >= time) return;
+      currentReads.set(name, { messageId, time });
+      renderReadReceipts();
     });
 
     socket.on("directory", (names) => {
