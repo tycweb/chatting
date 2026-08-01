@@ -2,10 +2,16 @@
 //
 // The app shell (HTML/CSS/JS/icons) is cached so it loads INSTANTLY on repeat
 // visits, even while the Render free-tier server is still waking up from
-// sleep. That means the branded loading screen shows right away instead of
-// a blank white page. Chat data itself (socket.io) always goes to the network.
+// sleep. Chat data itself (socket.io) always goes to the network.
+//
+// Strategy: race the network against a short timeout. If the server answers
+// quickly (it's warm), use that fresh response — this is what keeps the app
+// from showing an old cached version after a deploy. If the server is slow
+// (cold start / offline), fall back to the cached copy so the app still
+// loads instantly instead of showing a blank/frozen screen. Either way, the
+// cache gets updated in the background the moment the network responds.
 
-const CACHE_NAME = "tycept-shell-v1";
+const CACHE_NAME = "tycept-shell-v2";
 const APP_SHELL = [
   "/",
   "/style.css",
@@ -13,6 +19,7 @@ const APP_SHELL = [
   "/manifest.json",
   "/icon-192.png",
 ];
+const NETWORK_TIMEOUT_MS = 1500;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -42,26 +49,41 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // App shell: cache-first, so it renders instantly even if the server
-  // is still waking up. Falls back to network if not cached yet, and
-  // updates the cache in the background when it does hit the network.
-  if (request.method === "GET") {
-    event.respondWith(
-      caches.match(request).then((cached) => {
-        const networkFetch = fetch(request)
-          .then((response) => {
-            if (response && response.ok) {
-              const clone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-            }
-            return response;
-          })
-          .catch(() => cached); // offline / server asleep: fall back to cache
+  if (request.method !== "GET") return;
 
-        return cached || networkFetch;
-      })
-    );
-  }
+  event.respondWith(
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      const cached = await cache.match(request);
+
+      // Always kick this off — whichever path we take below, we still want
+      // the cache to end up holding the freshest response we can get.
+      const networkFetch = fetch(request)
+        .then((response) => {
+          if (response && response.ok) cache.put(request, response.clone());
+          return response;
+        })
+        .catch(() => null);
+
+      // Prefer a fresh response if the server answers within the timeout
+      // (warm server) — this is what fixes stale content after a deploy.
+      try {
+        const fast = await Promise.race([
+          networkFetch,
+          new Promise((_, reject) => setTimeout(reject, NETWORK_TIMEOUT_MS)),
+        ]);
+        if (fast) return fast;
+      } catch (_) {
+        // Network didn't answer in time (cold start / offline) — fall
+        // through to cache below instead of making the user wait.
+      }
+
+      if (cached) return cached;
+      // No cache and the fast path didn't pan out — wait it out.
+      const late = await networkFetch;
+      return late || fetch(request);
+    })()
+  );
 });
 
 // --- Push notifications (fires even when the app is closed) ---
