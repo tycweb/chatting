@@ -323,6 +323,14 @@ const pushSubscriptions = new Map();
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+// Hit by an external uptime pinger (UptimeRobot, cron-job.org, etc.) every
+// ~10 min to keep the free Render instance from spinning down after 15 min
+// of inactivity. Deliberately tiny — no DB/Redis calls — so it responds
+// fast and doesn't count against anything meaningful.
+app.get("/healthz", (req, res) => {
+  res.status(200).send("ok");
+});
+
 app.get("/api/vapid-public-key", (req, res) => {
   res.json({ key: VAPID_PUBLIC_KEY });
 });
