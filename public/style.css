@@ -1904,6 +1904,50 @@ html, body {
   animation: cardPopIn 0.22s cubic-bezier(.34, 1.56, .64, 1) backwards;
 }
 
+/* ---------- Modal / overlay exits ---------- */
+
+@keyframes overlayFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes sheetSlideDown {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(28px); }
+}
+
+@keyframes cardPopOut {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to { opacity: 0; transform: scale(0.92) translateY(6px); }
+}
+
+.new-chat-modal.closing {
+  animation: overlayFadeOut 0.18s ease forwards;
+  pointer-events: none;
+}
+
+.new-chat-modal.closing .new-chat-card {
+  animation: sheetSlideDown 0.2s cubic-bezier(.4, 0, 1, 1) forwards;
+}
+
+.exit-modal.closing {
+  animation: overlayFadeOut 0.15s ease forwards;
+  pointer-events: none;
+}
+
+.exit-modal.closing .exit-modal-card {
+  animation: cardPopOut 0.18s cubic-bezier(.4, 0, 1, 1) forwards;
+}
+
+.lightbox.closing {
+  animation: overlayFadeOut 0.15s ease forwards;
+  pointer-events: none;
+}
+
+.lightbox.closing img {
+  animation: cardPopOut 0.18s cubic-bezier(.4, 0, 1, 1) forwards;
+}
+
 /* Conversation rows and member rows count in as a light stagger so a
    freshly opened list doesn't just snap into place. */
 .conversation-list .conv-item {
@@ -1926,7 +1970,10 @@ html, body {
   .icon-btn, .btn-primary, .exit-btn, .new-chat-tab, .new-chat-close,
   .search-nav-btn, .attach-btn, .lightbox-download, .conversation-list .conv-item,
   .member-row, #jump-pill, .new-chat-modal, .new-chat-card, .exit-modal,
-  .exit-modal-card, .lightbox, .lightbox img, .conversations-screen, .chat-screen {
+  .exit-modal-card, .lightbox, .lightbox img, .conversations-screen, .chat-screen,
+  .new-chat-modal.closing, .new-chat-modal.closing .new-chat-card,
+  .exit-modal.closing, .exit-modal.closing .exit-modal-card,
+  .lightbox.closing, .lightbox.closing img {
     animation: none !important;
     transition: none !important;
   }

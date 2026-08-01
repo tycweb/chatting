@@ -220,6 +220,40 @@
     messageList.style.backgroundImage = preset.css === "none" ? "" : preset.css;
   }
 
+  const prefersReducedMotion =
+    window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Popups are opened by just removing "hidden" (the CSS entrance animation
+  // fires automatically on that display-none -> flex transition). Closing
+  // needs an extra beat: add "closing" to play an exit animation, then swap
+  // to "hidden" once it finishes so the box doesn't just vanish instantly.
+  function closeOverlay(el, afterHide) {
+    if (!el || el.classList.contains("hidden")) return;
+    if (prefersReducedMotion) {
+      el.classList.remove("closing");
+      el.classList.add("hidden");
+      if (afterHide) afterHide();
+      return;
+    }
+    if (el.classList.contains("closing")) return;
+    el.classList.add("closing");
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      el.classList.add("hidden");
+      el.classList.remove("closing");
+      el.removeEventListener("animationend", onAnimEnd);
+      if (afterHide) afterHide();
+    };
+    const onAnimEnd = (e) => {
+      if (e.target !== el) return; // ignore bubbled animationend from inner elements
+      finish();
+    };
+    el.addEventListener("animationend", onAnimEnd);
+    setTimeout(finish, 260); // fallback in case the animation doesn't fire
+  }
+
   const NAME_COLORS = ["#7dd3fc", "#a78bfa", "#f472b6", "#fb923c", "#34d399", "#facc15", "#60a5fa", "#f87171"];
   function colorForName(name) {
     let hash = 0;
@@ -494,7 +528,7 @@
   // ---------- New chat modal ----------
 
   function closeNewChatModal() {
-    newChatModal.classList.add("hidden");
+    closeOverlay(newChatModal);
   }
 
   function openNewChatModal() {
@@ -581,7 +615,7 @@
   // ---------- Add people (to an existing dm/group) ----------
 
   function closeAddMembersModal() {
-    addMembersModal.classList.add("hidden");
+    closeOverlay(addMembersModal);
   }
 
   function openAddMembersModal() {
@@ -647,7 +681,7 @@
   // ---------- View members (read-only list of who's in this chat) ----------
 
   function closeViewMembersModal() {
-    viewMembersModal.classList.add("hidden");
+    closeOverlay(viewMembersModal);
   }
 
   function openViewMembersModal() {
@@ -1735,8 +1769,9 @@
   }
 
   function closeLightbox() {
-    lightbox.classList.add("hidden");
-    lightboxImg.src = "";
+    closeOverlay(lightbox, () => {
+      lightboxImg.src = "";
+    });
   }
 
   lightbox.addEventListener("click", (e) => {
@@ -2485,7 +2520,7 @@
   }
 
   function hideExitModal() {
-    exitModal.classList.add("hidden");
+    closeOverlay(exitModal);
   }
 
   window.addEventListener("popstate", () => {
