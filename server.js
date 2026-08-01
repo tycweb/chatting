@@ -144,6 +144,8 @@ const knownUsers = new Set(); // every name that has ever joined — the "direct
 const onlineUsers = new Map(); // socket.id -> name
 const socketsByName = new Map(); // name -> Set(socket.id)
 const passwords = new Map(); // name -> { salt, hash } — set once, the first time a name is claimed
+const avatars = new Map(); // name -> avatar URL (custom profile picture, if they've set one)
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024; // ~3MB decoded ceiling for a profile picture
 
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString("hex");
@@ -221,6 +223,7 @@ async function saveMetaToRedisNow() {
       hash: rec.hash,
     })),
     conversationIds: Array.from(conversations.keys()),
+    avatars: Array.from(avatars.entries()),
   });
   try {
     await redisClient.set(META_KEY, payload);
@@ -301,6 +304,11 @@ async function loadStateFromRedis() {
       if (Array.isArray(meta.passwords)) {
         for (const p of meta.passwords) {
           if (p && p.name && p.salt && p.hash) passwords.set(p.name, { salt: p.salt, hash: p.hash });
+        }
+      }
+      if (Array.isArray(meta.avatars)) {
+        for (const [n, url] of meta.avatars) {
+          if (n && url) avatars.set(n, url);
         }
       }
       const convIds = Array.isArray(meta.conversationIds) ? meta.conversationIds : [];
@@ -537,11 +545,38 @@ io.on("connection", (socket) => {
       conversations: conversationsForUser(name),
       directory: Array.from(knownUsers).filter((n) => n !== name),
       media: { images: ALLOW_IMAGES, videos: ALLOW_VIDEOS },
+      avatars: Object.fromEntries(avatars),
     });
 
     broadcastPresence();
     if (isNewUser) broadcastDirectory();
     if (isNewUser || passwordJustSet) saveMetaToRedis();
+  });
+
+  socket.on("set-avatar", async ({ avatar } = {}, ack) => {
+    const reply = (result) => {
+      if (typeof ack === "function") ack(result);
+    };
+    const name = socket.data.name;
+    if (!name) return reply({ error: "not-joined" });
+    if (typeof avatar !== "string" || !avatar.startsWith("data:image/")) {
+      return reply({ error: "invalid-image" });
+    }
+    const parsed = parseDataUrl(avatar);
+    if (!parsed) return reply({ error: "invalid-image" });
+    if (parsed.buffer.length > MAX_AVATAR_BYTES) return reply({ error: "too-large" });
+
+    try {
+      const url = await uploadMedia(avatar, "avatars");
+      if (!url) return reply({ error: "upload-failed" });
+      avatars.set(name, url);
+      reply({ avatar: url });
+      io.emit("avatar-updated", { name, avatar: url });
+      saveMetaToRedis();
+    } catch (err) {
+      console.error("Failed to set avatar:", err.message);
+      reply({ error: "upload-failed" });
+    }
   });
 
   socket.on("get-directory", (ack) => {
