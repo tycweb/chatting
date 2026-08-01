@@ -172,9 +172,25 @@ function ensureDefaultRoom() {
       members: [],
       history: [],
       createdAt: Date.now(),
+      reads: {},
+      wallpaper: null,
     });
   }
 }
+
+// Allow-listed wallpaper themes (Messenger-style "chat theme"). Keeping this
+// as a fixed set of keys — rather than accepting arbitrary CSS/colors from
+// the client — means a chat theme can never be used to inject styles.
+const WALLPAPER_KEYS = new Set([
+  "default",
+  "ocean",
+  "sunset",
+  "forest",
+  "grape",
+  "candy",
+  "mono",
+  "fire",
+]);
 
 // --- Redis (persists chat state across restarts / cold starts) ---
 // State used to live in ONE key holding the entire app (every conversation,
@@ -433,6 +449,7 @@ function summarize(conv) {
     name: conversationTitle(conv),
     members: conv.members,
     createdAt: conv.createdAt,
+    wallpaper: conv.wallpaper || null,
     lastMessage: last
       ? {
           name: last.name,
@@ -543,13 +560,72 @@ io.on("connection", (socket) => {
       return;
     }
     socket.join(conv.id);
+    if (!conv.reads) conv.reads = {};
     ack({
       id: conv.id,
       type: conv.type,
       name: conversationTitle(conv),
       members: conv.members,
       history: conv.history,
+      wallpaper: conv.wallpaper || null,
+      reads: conv.reads,
     });
+
+    // Opening a conversation counts as reading everything currently in it.
+    const last = conv.history[conv.history.length - 1];
+    if (last) {
+      const prevRead = conv.reads[name];
+      if (!prevRead || prevRead.time < last.time) {
+        conv.reads[name] = { messageId: last.id, time: last.time };
+        saveConversationToRedis(conv.id);
+        socket.to(conv.id).emit("read-receipt", {
+          conversationId: conv.id,
+          name,
+          messageId: last.id,
+          time: last.time,
+        });
+      }
+    }
+  });
+
+  // Client tells us it has a specific message on screen (e.g. a new message
+  // arrived while the conversation was already open). Only moves the read
+  // marker forward, never back.
+  socket.on("mark-read", ({ conversationId, messageId } = {}) => {
+    const name = socket.data.name;
+    const conv = conversations.get(conversationId);
+    if (!name || !conv || !isMember(conv, name)) return;
+    const msg = conv.history.find((m) => m.id === messageId);
+    if (!msg) return;
+
+    if (!conv.reads) conv.reads = {};
+    const prevRead = conv.reads[name];
+    if (prevRead && prevRead.time >= msg.time) return;
+
+    conv.reads[name] = { messageId: msg.id, time: msg.time };
+    saveConversationToRedis(conversationId);
+    socket.to(conversationId).emit("read-receipt", {
+      conversationId,
+      name,
+      messageId: msg.id,
+      time: msg.time,
+    });
+  });
+
+  // Sets the shared "chat theme" wallpaper for a conversation — visible to
+  // every member, same as Messenger's per-thread theme.
+  socket.on("set-wallpaper", ({ conversationId, wallpaper } = {}, ack) => {
+    const name = socket.data.name;
+    const reply = (result) => {
+      if (typeof ack === "function") ack(result);
+    };
+    const conv = conversations.get(conversationId);
+    if (!name || !conv || !isMember(conv, name)) return reply({ error: "not-found" });
+    const key = WALLPAPER_KEYS.has(wallpaper) ? wallpaper : null;
+    conv.wallpaper = key;
+    saveConversationToRedis(conversationId);
+    io.to(conversationId).emit("conversation-updated", summarize(conv));
+    reply({ wallpaper: key });
   });
 
   socket.on("create-conversation", (payload = {}, ack) => {
@@ -577,7 +653,16 @@ io.on("connection", (socket) => {
       const finalMembers = isPrivateRoom ? roomMembers : [];
 
       const id = `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const conv = { id, type: "room", name: cleanName, members: finalMembers, history: [], createdAt: Date.now() };
+      const conv = {
+        id,
+        type: "room",
+        name: cleanName,
+        members: finalMembers,
+        history: [],
+        createdAt: Date.now(),
+        reads: {},
+        wallpaper: null,
+      };
       conversations.set(id, conv);
 
       if (isPrivateRoom) {
@@ -627,6 +712,8 @@ io.on("connection", (socket) => {
       members,
       history: [],
       createdAt: Date.now(),
+      reads: {},
+      wallpaper: null,
     };
     conversations.set(id, conv);
 
