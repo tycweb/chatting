@@ -105,8 +105,15 @@
   function syncAppHeight() {
     const vv = window.visualViewport;
     const h = vv ? vv.height : window.innerHeight;
+    // If the user was already looking at the bottom of the chat, keep them
+    // pinned there once the new height applies. Without this, opening the
+    // keyboard shrinks the message list but leaves scrollTop untouched, so
+    // the most recent message ends up hidden below the fold behind the
+    // keyboard/composer instead of sliding up into view.
+    const wasNearBottom = isNearBottom();
     document.documentElement.style.setProperty("--app-height", `${h}px`);
     window.scrollTo(0, 0);
+    if (wasNearBottom) scrollToBottom();
   }
   syncAppHeight();
   if (window.visualViewport) {
@@ -227,6 +234,49 @@
     });
   }
 
+  // Shimmer placeholder rows shown in the chat list before the real
+  // conversations arrive (e.g. on first load, or while the server is
+  // waking up from sleep).
+  function renderConversationSkeleton(count = 6) {
+    conversationList.innerHTML = "";
+    convEmptyState.classList.add("hidden");
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < count; i++) {
+      const item = document.createElement("div");
+      item.className = "conv-item skeleton-conv-item";
+      item.innerHTML = `
+        <div class="skeleton-block skeleton-avatar"></div>
+        <div class="conv-body">
+          <div class="conv-top-row">
+            <div class="skeleton-block skeleton-line" style="width:${40 + (i % 3) * 10}%"></div>
+            <div class="skeleton-block skeleton-line" style="width:28px"></div>
+          </div>
+          <div class="conv-preview-row">
+            <div class="skeleton-block skeleton-line" style="width:${55 + (i % 4) * 8}%"></div>
+          </div>
+        </div>
+      `;
+      frag.appendChild(item);
+    }
+    conversationList.appendChild(frag);
+  }
+
+  // Shimmer placeholder bubbles shown the instant a chat is opened, so
+  // switching conversations feels immediate even while the history is
+  // still in flight from the server.
+  function renderMessageSkeleton() {
+    const pattern = ["them", "them", "me", "them", "me"];
+    const widths = [58, 40, 66, 36, 50];
+    const frag = document.createDocumentFragment();
+    pattern.forEach((who, i) => {
+      const row = document.createElement("div");
+      row.className = `msg-row skeleton-msg-row ${who}`;
+      row.innerHTML = `<div class="skeleton-msg-bubble" style="width:${widths[i]}%"></div>`;
+      frag.appendChild(row);
+    });
+    messageList.appendChild(frag);
+  }
+
   function renderConversationList() {
     const list = sortedConversations();
     conversationList.innerHTML = "";
@@ -282,11 +332,37 @@
     else convPresenceLine.textContent = `${others.length} people online`;
   }
 
+  let pendingOpenId = null;
+
   function openConversationById(id) {
     if (!socket) return;
     closeNewChatModal();
+    pendingOpenId = id;
+
+    // Switch to the chat screen right away with a skeleton instead of
+    // waiting on the round trip — real content swaps in the moment the
+    // server responds. Use whatever we already know about this
+    // conversation (name/avatar) so the header doesn't flash empty.
+    const cachedConv = conversationsMeta.get(id);
+    messageList.innerHTML = "";
+    renderMessageSkeleton();
+    if (cachedConv) {
+      chatTitle.textContent = conversationTitle(cachedConv);
+      chatTitleAvatar.textContent =
+        cachedConv.type === "room"
+          ? "#"
+          : cachedConv.type === "group"
+          ? "👥"
+          : conversationTitle(cachedConv).charAt(0).toUpperCase();
+    }
+    presenceLine.textContent = "connecting…";
+    conversationsScreen.classList.add("hidden");
+    chatScreen.classList.remove("hidden");
+
     socket.emit("open-conversation", { id }, (res) => {
+      if (pendingOpenId !== id) return; // user already switched to another chat
       if (!res || res.error) {
+        messageList.innerHTML = "";
         renderSystem("Couldn't open that chat.");
         return;
       }
@@ -321,8 +397,6 @@
         if (!img.complete) img.addEventListener("load", scrollToBottom, { once: true });
       });
 
-      conversationsScreen.classList.add("hidden");
-      chatScreen.classList.remove("hidden");
       messageInput.focus();
     });
   }
@@ -1918,6 +1992,8 @@
     passwordInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") doJoin();
     });
+
+  renderConversationSkeleton();
 
   const savedName = localStorage.getItem("chatName");
   const savedPassword = localStorage.getItem("chatPassword");
