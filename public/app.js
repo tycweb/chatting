@@ -248,14 +248,17 @@
 
   function conversationAvatarHtml(conv) {
     if (conv.type === "room") {
-      return `<div class="conv-avatar room-avatar">#</div>`;
+      return `<div class="conv-avatar-wrap"><div class="conv-avatar room-avatar">#</div></div>`;
     }
     if (conv.type === "group") {
-      return `<div class="conv-avatar group-avatar">👥</div>`;
+      const anyOnline = otherMembers(conv).some((m) => onlineNames.includes(m));
+      const dot = anyOnline ? `<span class="conv-online-dot"></span>` : "";
+      return `<div class="conv-avatar-wrap"><div class="conv-avatar group-avatar">👥</div>${dot}</div>`;
     }
     const other = otherMembers(conv)[0] || "?";
     const initial = other.trim().charAt(0).toUpperCase() || "?";
-    return `<div class="conv-avatar" style="background:${colorForName(other)}">${escapeHtml(initial)}</div>`;
+    const dot = onlineNames.includes(other) ? `<span class="conv-online-dot"></span>` : "";
+    return `<div class="conv-avatar-wrap"><div class="conv-avatar" style="background:${colorForName(other)}">${escapeHtml(initial)}</div>${dot}</div>`;
   }
 
   function conversationPreviewText(conv) {
@@ -1851,6 +1854,7 @@
         const conv = conversationsMeta.get(currentConversationId);
         if (conv && conv.type === "dm") updateDmPresence(conv);
       }
+      if (!conversationsScreen.classList.contains("hidden")) renderConversationList();
     });
 
     socket.on("typing", ({ conversationId, name, isTyping }) => {
