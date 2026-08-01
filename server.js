@@ -645,6 +645,53 @@ io.on("connection", (socket) => {
     reply(summarize(conv));
   });
 
+  // Adds people to an existing dm/group. A dm automatically becomes a group
+  // the moment it has more than 2 members — that's the only way one 1:1 chat
+  // and a group chat differ once they're created; there's no separate
+  // "convert to group" step.
+  socket.on("add-members", ({ conversationId, members: newMembersRaw, name: groupName } = {}, ack) => {
+    const name = socket.data.name;
+    const reply = (result) => {
+      if (typeof ack === "function") ack(result);
+    };
+    if (!name) return reply({ error: "not-joined" });
+
+    const conv = conversations.get(conversationId);
+    if (!conv) return reply({ error: "not-found" });
+    if (conv.type !== "dm" && conv.type !== "group") return reply({ error: "unsupported" });
+    if (!isMember(conv, name)) return reply({ error: "not-member" });
+
+    let toAdd = Array.isArray(newMembersRaw) ? newMembersRaw : [];
+    toAdd = toAdd.map((m) => sanitize(m).slice(0, MAX_NAME_LENGTH)).filter(Boolean);
+    toAdd = toAdd.filter((m) => knownUsers.has(m) && !conv.members.includes(m));
+    if (toAdd.length === 0) return reply({ error: "no-new-members" });
+
+    const merged = Array.from(new Set([...conv.members, ...toAdd]));
+    if (merged.length > MAX_GROUP_MEMBERS) return reply({ error: "too-many-members" });
+
+    conv.members = merged;
+    if (conv.type === "dm" && merged.length > 2) conv.type = "group";
+    if (conv.type === "group" && !conv.name && groupName) {
+      conv.name = sanitize(groupName).slice(0, MAX_CONV_NAME_LENGTH);
+    }
+
+    // Newly added members need their live sockets to join the room so they
+    // start receiving messages immediately, same as at creation time.
+    for (const m of toAdd) {
+      const set = socketsByName.get(m);
+      if (!set) continue;
+      for (const sid of set) {
+        const s = io.sockets.sockets.get(sid);
+        if (s) s.join(conv.id);
+      }
+    }
+
+    io.to(conv.id).emit("conversation-updated", summarize(conv));
+    saveConversationToRedis(conv.id);
+    saveMetaToRedis();
+    reply(summarize(conv));
+  });
+
   socket.on("message", async (payload) => {
     const name = socket.data.name;
     if (!name) return;
