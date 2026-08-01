@@ -48,6 +48,18 @@
   const backBtn = document.getElementById("back-btn");
   const chatTitle = document.getElementById("chat-title");
   const chatTitleAvatar = document.getElementById("chat-title-avatar");
+  const chatTitleBtn = document.getElementById("chat-title-btn");
+
+  // My profile picture UI
+  const myAvatarBtn = document.getElementById("my-avatar-btn");
+  const myAvatarInner = document.getElementById("my-avatar-inner");
+  const myAvatarInput = document.getElementById("my-avatar-input");
+
+  // View members (read-only) modal UI
+  const viewMembersModal = document.getElementById("view-members-modal");
+  const viewMembersClose = document.getElementById("view-members-close");
+  const viewMembersTitle = document.getElementById("view-members-title");
+  const viewMembersList = document.getElementById("view-members-list");
 
   // New chat modal UI
   const newChatModal = document.getElementById("new-chat-modal");
@@ -215,6 +227,19 @@
     return NAME_COLORS[hash % NAME_COLORS.length];
   }
 
+  // Custom profile pictures. name -> avatar URL. Populated from the join
+  // reply and kept in sync via the "avatar-updated" broadcast.
+  const avatars = new Map();
+
+  // Inner HTML for any avatar circle/square: a custom photo if the person
+  // has set one, otherwise the usual colored initial.
+  function avatarInnerHtml(name) {
+    const url = avatars.get(name);
+    if (url) return `<img src="${escapeHtml(url)}" alt="" loading="lazy" />`;
+    const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
+    return escapeHtml(initial);
+  }
+
   function fmtTime(ts) {
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -256,9 +281,8 @@
       return `<div class="conv-avatar-wrap"><div class="conv-avatar group-avatar">👥</div>${dot}</div>`;
     }
     const other = otherMembers(conv)[0] || "?";
-    const initial = other.trim().charAt(0).toUpperCase() || "?";
     const dot = onlineNames.includes(other) ? `<span class="conv-online-dot"></span>` : "";
-    return `<div class="conv-avatar-wrap"><div class="conv-avatar" style="background:${colorForName(other)}">${escapeHtml(initial)}</div>${dot}</div>`;
+    return `<div class="conv-avatar-wrap"><div class="conv-avatar" style="background:${colorForName(other)}">${avatarInnerHtml(other)}</div>${dot}</div>`;
   }
 
   function conversationPreviewText(conv) {
@@ -379,6 +403,17 @@
     else convPresenceLine.textContent = `${others.length} people online`;
   }
 
+  function renderChatTitleAvatar(conv) {
+    if (conv.type === "room") {
+      chatTitleAvatar.textContent = "#";
+    } else if (conv.type === "group") {
+      chatTitleAvatar.textContent = "👥";
+    } else {
+      const other = otherMembers(conv)[0] || conversationTitle(conv);
+      chatTitleAvatar.innerHTML = avatarInnerHtml(other);
+    }
+  }
+
   let pendingOpenId = null;
 
   function openConversationById(id) {
@@ -395,12 +430,7 @@
     renderMessageSkeleton();
     if (cachedConv) {
       chatTitle.textContent = conversationTitle(cachedConv);
-      chatTitleAvatar.textContent =
-        cachedConv.type === "room"
-          ? "#"
-          : cachedConv.type === "group"
-          ? "👥"
-          : conversationTitle(cachedConv).charAt(0).toUpperCase();
+      renderChatTitleAvatar(cachedConv);
     }
     updateAddPeopleVisibility(cachedConv);
     presenceLine.textContent = "connecting…";
@@ -432,8 +462,7 @@
       currentReads = new Map(Object.entries(res.reads || {}));
 
       chatTitle.textContent = conversationTitle(conv);
-      chatTitleAvatar.textContent =
-        conv.type === "room" ? "#" : conv.type === "group" ? "👥" : conversationTitle(conv).charAt(0).toUpperCase();
+      renderChatTitleAvatar(conv);
       updateAddPeopleVisibility(conv);
       if (conv.type === "room") {
         presenceLine.textContent = "public room";
@@ -514,11 +543,10 @@
       const row = document.createElement("div");
       row.className = `member-row${selectedSet.has(n) ? " selected" : ""}`;
       row.style.setProperty("--row-i", Math.min(i, 10));
-      const initial = n.trim().charAt(0).toUpperCase() || "?";
       const isOnline = onlineNames.includes(n);
       row.innerHTML = `
         <div class="member-row-avatar-wrap">
-          <div class="conv-avatar" style="background:${colorForName(n)}">${escapeHtml(initial)}</div>
+          <div class="conv-avatar" style="background:${colorForName(n)}">${avatarInnerHtml(n)}</div>
           <span class="member-status-dot ${isOnline ? "online" : "offline"}"></span>
         </div>
         <span class="member-row-name">${escapeHtml(n)}</span>
@@ -614,6 +642,131 @@
           closeAddMembersModal();
         }
       );
+    });
+
+  // ---------- View members (read-only list of who's in this chat) ----------
+
+  function closeViewMembersModal() {
+    viewMembersModal.classList.add("hidden");
+  }
+
+  function openViewMembersModal() {
+    if (!currentConversationId) return;
+    const conv = conversationsMeta.get(currentConversationId);
+    if (!conv) return;
+    const isPublicRoom = conv.type === "room" && (conv.members || []).length === 0;
+    viewMembersTitle.textContent = isPublicRoom
+      ? "Online now"
+      : conv.type === "group"
+      ? "Group members"
+      : "Members";
+    renderViewMembersList();
+    viewMembersModal.classList.remove("hidden");
+  }
+
+  function renderViewMembersList() {
+    if (!currentConversationId) return;
+    const conv = conversationsMeta.get(currentConversationId);
+    if (!conv) return;
+    const isPublicRoom = conv.type === "room" && (conv.members || []).length === 0;
+    // A public room's member list is implicit ("everyone can join") rather
+    // than a fixed roster, so show who's actually online right now instead.
+    const pool = isPublicRoom ? Array.from(new Set([myName, ...onlineNames])) : conv.members || [];
+    const names = pool.slice().sort((a, b) => {
+      if (a === myName) return -1;
+      if (b === myName) return 1;
+      return a.localeCompare(b);
+    });
+    viewMembersList.innerHTML = "";
+    if (isPublicRoom) {
+      const hint = document.createElement("p");
+      hint.className = "new-chat-hint";
+      hint.textContent = "This is a public room — anyone in Tycept can join, so this shows who's online now.";
+      viewMembersList.appendChild(hint);
+    }
+    if (names.length === 0) {
+      viewMembersList.innerHTML += `<p class="member-list-empty">No one here yet.</p>`;
+      return;
+    }
+    names.forEach((n, i) => {
+      const row = document.createElement("div");
+      row.className = "member-row view-member-row";
+      row.style.setProperty("--row-i", Math.min(i, 10));
+      const isOnline = onlineNames.includes(n);
+      const isMe = n === myName;
+      row.innerHTML = `
+        <div class="member-row-avatar-wrap">
+          <div class="conv-avatar" style="background:${colorForName(n)}">${avatarInnerHtml(n)}</div>
+          <span class="member-status-dot ${isOnline ? "online" : "offline"}"></span>
+        </div>
+        <span class="member-row-name">${escapeHtml(n)}${isMe ? " (you)" : ""}</span>
+        <span class="member-row-status">${isOnline ? "online" : "offline"}</span>
+      `;
+      viewMembersList.appendChild(row);
+    });
+  }
+
+  chatTitleBtn &&
+    chatTitleBtn.addEventListener("click", () => {
+      const conv = currentConversationId ? conversationsMeta.get(currentConversationId) : null;
+      if (conv) openViewMembersModal();
+    });
+  chatTitleBtn &&
+    chatTitleBtn.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      chatTitleBtn.click();
+    });
+  viewMembersClose && viewMembersClose.addEventListener("click", closeViewMembersModal);
+  viewMembersModal &&
+    viewMembersModal.addEventListener("click", (e) => {
+      if (e.target === viewMembersModal) closeViewMembersModal();
+    });
+
+  // ---------- My profile picture ----------
+
+  function refreshMyAvatarButton() {
+    if (!myAvatarInner || !myName) return;
+    myAvatarInner.style.background = colorForName(myName);
+    myAvatarInner.innerHTML = avatarInnerHtml(myName);
+  }
+
+  myAvatarBtn && myAvatarBtn.addEventListener("click", () => myAvatarInput && myAvatarInput.click());
+  myAvatarInput &&
+    myAvatarInput.addEventListener("change", async () => {
+      const file = myAvatarInput.files && myAvatarInput.files[0];
+      myAvatarInput.value = "";
+      if (!file || !socket) return;
+      if (!file.type.startsWith("image/")) {
+        renderSystem("That doesn't look like an image.");
+        return;
+      }
+      if (file.size > MAX_SOURCE_FILE_BYTES) {
+        renderSystem("That photo is too large — try a smaller one.");
+        return;
+      }
+      myAvatarBtn.classList.add("uploading");
+      try {
+        const dataUrl = await compressAvatarImage(file);
+        socket.emit("set-avatar", { avatar: dataUrl }, (res) => {
+          myAvatarBtn.classList.remove("uploading");
+          if (!res || res.error) {
+            renderSystem("Couldn't update your profile picture — try again.");
+            return;
+          }
+          avatars.set(myName, res.avatar);
+          refreshMyAvatarButton();
+          renderConversationList();
+          if (currentConversationId) {
+            const conv = conversationsMeta.get(currentConversationId);
+            if (conv) renderChatTitleAvatar(conv);
+            renderReadReceipts();
+          }
+        });
+      } catch (err) {
+        myAvatarBtn.classList.remove("uploading");
+        renderSystem("Couldn't read that photo — try a different one.");
+      }
     });
 
   newChatBtn && newChatBtn.addEventListener("click", openNewChatModal);
@@ -751,8 +904,7 @@
   }
 
   function avatarHtml(name) {
-    const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
-    return `<div class="msg-avatar" style="background:${colorForName(name)}">${escapeHtml(initial)}</div>`;
+    return `<div class="msg-avatar" style="background:${colorForName(name)}">${avatarInnerHtml(name)}</div>`;
   }
 
   function replyQuoteHtml(replyTo) {
@@ -865,6 +1017,7 @@
     const row = document.createElement("div");
     row.className = `msg-row ${msg.name === myName ? "me" : "them"}${groupedPrev ? " grouped-prev" : ""}`;
     row.dataset.id = msg.id;
+    row.dataset.sender = msg.name;
     row.innerHTML = buildRowInnerHtml(msg, groupedPrev, false);
     messageList.appendChild(row);
 
@@ -1560,11 +1713,11 @@
       if (conv.type === "group" || conv.type === "room") {
         marker.innerHTML = names
           .slice(0, 3)
-          .map((n) => `<span class="read-receipt-avatar" style="background:${colorForName(n)}">${escapeHtml(n.trim().charAt(0).toUpperCase())}</span>`)
+          .map((n) => `<span class="read-receipt-avatar" style="background:${colorForName(n)}">${avatarInnerHtml(n)}</span>`)
           .join("");
         if (names.length > 3) marker.innerHTML += `<span class="read-receipt-more">+${names.length - 3}</span>`;
       } else {
-        marker.innerHTML = `<span class="read-receipt-avatar" style="background:${colorForName(names[0])}">${escapeHtml(names[0].trim().charAt(0).toUpperCase())}</span>`;
+        marker.innerHTML = `<span class="read-receipt-avatar" style="background:${colorForName(names[0])}">${avatarInnerHtml(names[0])}</span>`;
       }
       // Placed right after the wrap, in normal flow — never overlaps
       // the reaction row (which is absolutely positioned) or the next
@@ -1732,6 +1885,9 @@
         }
         myName = res.name;
         directory = res.directory || [];
+        avatars.clear();
+        Object.entries(res.avatars || {}).forEach(([n, url]) => avatars.set(n, url));
+        refreshMyAvatarButton();
         conversationsMeta.clear();
         (res.conversations || []).forEach((c) => conversationsMeta.set(c.id, Object.assign({ unread: 0 }, c)));
 
@@ -1849,8 +2005,7 @@
       upsertConversation(conv);
       if (conv.id !== currentConversationId) return;
       chatTitle.textContent = conversationTitle(conv);
-      chatTitleAvatar.textContent =
-        conv.type === "room" ? "#" : conv.type === "group" ? "👥" : conversationTitle(conv).charAt(0).toUpperCase();
+      renderChatTitleAvatar(conv);
       updateAddPeopleVisibility(conv);
       applyWallpaper(conv.wallpaper);
       if (conv.type === "room") {
@@ -1870,6 +2025,26 @@
       if (existing && existing.time >= time) return;
       currentReads.set(name, { messageId, time });
       renderReadReceipts();
+    });
+
+    socket.on("avatar-updated", ({ name, avatar } = {}) => {
+      if (!name || !avatar) return;
+      avatars.set(name, avatar);
+      if (name === myName) refreshMyAvatarButton();
+      renderConversationList();
+      if (currentConversationId) {
+        const conv = conversationsMeta.get(currentConversationId);
+        if (conv) renderChatTitleAvatar(conv);
+        messageList.querySelectorAll(".msg-row").forEach((row) => {
+          if (row.dataset.sender !== name) return;
+          const el = row.querySelector(".msg-avatar");
+          if (el) el.innerHTML = avatarInnerHtml(name);
+        });
+        renderReadReceipts();
+      }
+      if (!newChatModal.classList.contains("hidden")) renderMemberList();
+      if (!addMembersModal.classList.contains("hidden")) renderAddMembersList();
+      if (!viewMembersModal.classList.contains("hidden")) renderViewMembersList();
     });
 
     socket.on("directory", (names) => {
@@ -1928,6 +2103,35 @@
     setTimeout(() => sendBtn.classList.remove("pulsing"), 360);
     if (navigator.vibrate) navigator.vibrate(10);
     clearReplyTarget();
+  }
+
+  const AVATAR_DIMENSION = 320;
+  const AVATAR_QUALITY = 0.85;
+
+  // Profile pictures get a center-cropped square (not just a resize) so
+  // they always fill the circular avatar cleanly instead of looking squished.
+  function compressAvatarImage(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read file"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("Could not decode image"));
+        img.onload = () => {
+          const side = Math.min(img.width, img.height);
+          const sx = (img.width - side) / 2;
+          const sy = (img.height - side) / 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = AVATAR_DIMENSION;
+          canvas.height = AVATAR_DIMENSION;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_DIMENSION, AVATAR_DIMENSION);
+          resolve(canvas.toDataURL("image/jpeg", AVATAR_QUALITY));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
   }
 
   function compressImage(file) {

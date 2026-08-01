@@ -247,6 +247,57 @@ html, body {
 .icon-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
 .icon-btn.active { opacity: 1; color: var(--accent-1); background: rgba(125, 211, 252, 0.14); }
 
+.my-avatar-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  background: transparent;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.my-avatar-btn:active { transform: scale(0.93); }
+.my-avatar-btn.uploading { opacity: 0.5; pointer-events: none; }
+
+.my-avatar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--black-0);
+  background: var(--black-3);
+  border: 1.5px dashed var(--line);
+}
+.my-avatar-inner img { width: 100%; height: 100%; object-fit: cover; }
+
+.chat-title-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.chat-title-btn:active { opacity: 0.75; }
+
+.view-members-list .view-member-row { cursor: default; }
+.view-members-list .view-member-row:hover { background: transparent; }
+.view-members-list .view-member-row:active { transform: none; }
+
 .connection-dot.online { background: var(--online); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18); }
 .connection-dot.offline { background: var(--offline); --dot-glow: rgba(248, 113, 113, 0.45); animation: dotPulse 1.2s ease-in-out infinite; }
 .connection-dot.connecting { background: var(--connecting); --dot-glow: rgba(251, 191, 36, 0.45); animation: dotPulse 1.2s ease-in-out infinite; }
@@ -365,6 +416,7 @@ html, body {
   font-family: var(--font-display);
   color: var(--black-0);
   margin-bottom: 1px;
+  overflow: hidden;
 }
 
 /* Only the last bubble in a consecutive run shows its avatar — earlier
@@ -1470,6 +1522,18 @@ html, body {
   font-size: 18px;
   color: var(--black-0);
   position: relative;
+  overflow: hidden;
+}
+
+.conv-avatar img,
+.msg-avatar img,
+.read-receipt-avatar img,
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
 }
 
 .conv-avatar.room-avatar {
@@ -1950,6 +2014,7 @@ html, body {
   font-family: var(--font-display);
   color: var(--black-0);
   border: 1.5px solid var(--black-1);
+  overflow: hidden;
 }
 
 .read-receipt-more {
