@@ -67,6 +67,197 @@
     <p id="conv-empty-state" class="conv-empty-state hidden">No chats yet — tap + to start one.</p>
   </div>
 
+  <!-- Features screen (fun + productivity tools) -->
+  <div id="features-screen" class="screen features-screen hidden">
+    <header class="chat-header conv-list-header">
+      <div class="header-left">
+        <div class="brand-mark small">✨</div>
+        <div>
+          <h2>Features</h2>
+          <p class="presence-line">fun stuff + handy tools</p>
+        </div>
+      </div>
+    </header>
+    <main id="features-list" class="features-list">
+      <section class="features-section">
+        <p class="features-section-title">Fun</p>
+
+        <div class="feature-card">
+          <button class="feature-card-head" data-feature="dice" type="button">
+            <span class="feature-card-icon">🎲</span>
+            <span class="feature-card-label">Dice Roller</span>
+            <span class="feature-card-chevron">›</span>
+          </button>
+          <div id="feature-body-dice" class="feature-card-body hidden">
+            <div id="dice-result" class="feature-result">🎲</div>
+            <button id="dice-roll-btn" class="btn-primary" type="button">Roll</button>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <button class="feature-card-head" data-feature="eightball" type="button">
+            <span class="feature-card-icon">🎱</span>
+            <span class="feature-card-label">Magic 8-Ball</span>
+            <span class="feature-card-chevron">›</span>
+          </button>
+          <div id="feature-body-eightball" class="feature-card-body hidden">
+            <input id="eightball-question" class="name-input" maxlength="120" placeholder="Ask a yes/no question…" autocomplete="off" />
+            <button id="eightball-ask-btn" class="btn-primary" type="button">Ask the ball</button>
+            <p id="eightball-answer" class="feature-answer"></p>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <button class="feature-card-head" data-feature="coin" type="button">
+            <span class="feature-card-icon">🪙</span>
+            <span class="feature-card-label">Coin Flip</span>
+            <span class="feature-card-chevron">›</span>
+          </button>
+          <div id="feature-body-coin" class="feature-card-body hidden">
+            <div id="coin-result" class="feature-result">🪙</div>
+            <button id="coin-flip-btn" class="btn-primary" type="button">Flip</button>
+          </div>
+        </div>
+
+        <button id="confetti-btn" class="feature-card feature-card-instant" type="button">
+          <span class="feature-card-icon">🎉</span>
+          <span class="feature-card-label">Confetti Blast</span>
+        </button>
+      </section>
+
+      <section class="features-section">
+        <p class="features-section-title">Productivity</p>
+
+        <div class="feature-card">
+          <button class="feature-card-head" data-feature="poll" type="button">
+            <span class="feature-card-icon">🗳️</span>
+            <span class="feature-card-label">Quick Poll</span>
+            <span class="feature-card-chevron">›</span>
+          </button>
+          <div id="feature-body-poll" class="feature-card-body hidden">
+            <input id="poll-question" class="name-input" maxlength="120" placeholder="Poll question" autocomplete="off" />
+            <input id="poll-option-1" class="name-input" maxlength="60" placeholder="Option 1" autocomplete="off" />
+            <input id="poll-option-2" class="name-input" maxlength="60" placeholder="Option 2" autocomplete="off" />
+            <input id="poll-option-3" class="name-input" maxlength="60" placeholder="Option 3 (optional)" autocomplete="off" />
+            <input id="poll-option-4" class="name-input" maxlength="60" placeholder="Option 4 (optional)" autocomplete="off" />
+            <button id="poll-send-btn" class="btn-primary" type="button" disabled>Choose a chat & send</button>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <button class="feature-card-head" data-feature="todo" type="button">
+            <span class="feature-card-icon">✅</span>
+            <span class="feature-card-label">My To-Do List</span>
+            <span class="feature-card-chevron">›</span>
+          </button>
+          <div id="feature-body-todo" class="feature-card-body hidden">
+            <div class="todo-add-row">
+              <input id="todo-input" class="name-input" maxlength="80" placeholder="Add a task…" autocomplete="off" />
+              <button id="todo-add-btn" class="icon-btn todo-add-btn" aria-label="Add task" type="button">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </div>
+            <ul id="todo-list" class="todo-list"></ul>
+            <p id="todo-empty" class="todo-empty">Nothing on your list yet.</p>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <button class="feature-card-head" data-feature="quiet" type="button">
+            <span class="feature-card-icon">🌙</span>
+            <span class="feature-card-label">Quiet Hours</span>
+            <span class="feature-card-chevron">›</span>
+          </button>
+          <div id="feature-body-quiet" class="feature-card-body hidden">
+            <div class="menu-row">
+              <span>Mute message sounds overnight</span>
+              <button id="quiet-hours-toggle" class="menu-switch" type="button" aria-pressed="false"><span class="menu-switch-knob"></span></button>
+            </div>
+            <div class="quiet-hours-times">
+              <label>From<input id="quiet-start" class="name-input" type="time" value="22:00" /></label>
+              <label>To<input id="quiet-end" class="name-input" type="time" value="08:00" /></label>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Menu screen (profile + settings) -->
+  <div id="menu-screen" class="screen menu-screen hidden">
+    <header class="chat-header conv-list-header">
+      <div class="header-left">
+        <div class="brand-mark small">☰</div>
+        <div><h2>Menu</h2></div>
+      </div>
+    </header>
+    <main class="menu-list">
+      <div class="menu-profile-card">
+        <button id="menu-avatar-btn" class="my-avatar-btn menu-avatar-btn" aria-label="Change your profile picture" type="button">
+          <span id="menu-avatar-inner" class="my-avatar-inner"></span>
+        </button>
+        <input id="menu-avatar-input" type="file" accept="image/*" hidden />
+        <div class="menu-profile-info">
+          <p id="menu-profile-name" class="menu-profile-name"></p>
+          <p class="menu-profile-hint">Tap your photo to change it</p>
+        </div>
+      </div>
+
+      <div class="menu-section">
+        <div class="menu-row">
+          <span>🔔 Message sounds</span>
+          <button id="menu-sound-toggle" class="menu-switch" type="button" aria-pressed="true"><span class="menu-switch-knob"></span></button>
+        </div>
+      </div>
+
+      <button id="menu-logout-btn" class="menu-row menu-row-danger" type="button">
+        <span>🚪 Log out</span>
+      </button>
+    </main>
+  </div>
+
+  <!-- Logout confirmation modal -->
+  <div id="logout-modal" class="exit-modal hidden">
+    <div class="exit-modal-card">
+      <p class="exit-modal-title">Log out?</p>
+      <p class="exit-modal-sub">You'll need your name and password to sign back in.</p>
+      <div class="exit-modal-actions">
+        <button id="logout-cancel-btn" class="exit-btn exit-btn-cancel" type="button">Cancel</button>
+        <button id="logout-confirm-btn" class="exit-btn exit-btn-confirm" type="button">Log out</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Poll destination picker -->
+  <div id="poll-picker-modal" class="new-chat-modal hidden">
+    <div class="new-chat-card">
+      <div class="new-chat-head">
+        <p class="new-chat-title">Send poll to…</p>
+        <button id="poll-picker-close" class="new-chat-close" type="button">✕</button>
+      </div>
+      <div id="poll-picker-list" class="member-list"></div>
+    </div>
+  </div>
+
+  <!-- Bottom nav (Messenger-style: Chats / Features / Menu) -->
+  <nav id="bottom-nav" class="bottom-nav hidden">
+    <button class="nav-tab active" data-tab="chats" type="button">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      <span>Chats</span>
+    </button>
+    <button class="nav-tab" data-tab="features" type="button">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+      <span>Features</span>
+    </button>
+    <button class="nav-tab" data-tab="menu" type="button">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+  </nav>
+
+  <!-- Confetti overlay -->
+  <canvas id="confetti-canvas" class="confetti-canvas hidden"></canvas>
+
   <!-- New chat modal -->
   <div id="new-chat-modal" class="new-chat-modal hidden">
     <div class="new-chat-card">

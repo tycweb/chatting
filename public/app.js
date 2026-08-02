@@ -55,6 +55,47 @@
   const myAvatarInner = document.getElementById("my-avatar-inner");
   const myAvatarInput = document.getElementById("my-avatar-input");
 
+  // Bottom nav (Chats / Features / Menu)
+  const bottomNav = document.getElementById("bottom-nav");
+  const navTabButtons = bottomNav ? Array.from(bottomNav.querySelectorAll(".nav-tab")) : [];
+
+  // Features screen UI
+  const featuresScreen = document.getElementById("features-screen");
+  const diceResult = document.getElementById("dice-result");
+  const diceRollBtn = document.getElementById("dice-roll-btn");
+  const eightballQuestion = document.getElementById("eightball-question");
+  const eightballAskBtn = document.getElementById("eightball-ask-btn");
+  const eightballAnswer = document.getElementById("eightball-answer");
+  const coinResult = document.getElementById("coin-result");
+  const coinFlipBtn = document.getElementById("coin-flip-btn");
+  const confettiBtn = document.getElementById("confetti-btn");
+  const confettiCanvas = document.getElementById("confetti-canvas");
+  const pollQuestionInput = document.getElementById("poll-question");
+  const pollOptionInputs = [1, 2, 3, 4].map((i) => document.getElementById(`poll-option-${i}`));
+  const pollSendBtn = document.getElementById("poll-send-btn");
+  const pollPickerModal = document.getElementById("poll-picker-modal");
+  const pollPickerList = document.getElementById("poll-picker-list");
+  const pollPickerClose = document.getElementById("poll-picker-close");
+  const todoInput = document.getElementById("todo-input");
+  const todoAddBtn = document.getElementById("todo-add-btn");
+  const todoListEl = document.getElementById("todo-list");
+  const todoEmpty = document.getElementById("todo-empty");
+  const quietHoursToggle = document.getElementById("quiet-hours-toggle");
+  const quietStartInput = document.getElementById("quiet-start");
+  const quietEndInput = document.getElementById("quiet-end");
+
+  // Menu screen UI
+  const menuScreen = document.getElementById("menu-screen");
+  const menuAvatarBtn = document.getElementById("menu-avatar-btn");
+  const menuAvatarInner = document.getElementById("menu-avatar-inner");
+  const menuAvatarInput = document.getElementById("menu-avatar-input");
+  const menuProfileName = document.getElementById("menu-profile-name");
+  const menuSoundToggle = document.getElementById("menu-sound-toggle");
+  const menuLogoutBtn = document.getElementById("menu-logout-btn");
+  const logoutModal = document.getElementById("logout-modal");
+  const logoutCancelBtn = document.getElementById("logout-cancel-btn");
+  const logoutConfirmBtn = document.getElementById("logout-confirm-btn");
+
   // View members (read-only) modal UI
   const viewMembersModal = document.getElementById("view-members-modal");
   const viewMembersClose = document.getElementById("view-members-close");
@@ -445,15 +486,40 @@
     if (!conversationsScreen.classList.contains("hidden")) renderConversationList();
   }
 
-  function showConversationsScreen() {
-    currentConversationId = null;
+  // Messenger-style bottom nav: Chats / Features / Menu. Only one of the
+  // three top-level screens is visible at a time, and the nav itself hides
+  // completely once a single conversation is opened (chat-screen), same as
+  // Messenger's own bottom bar.
+  function showBottomTab(tab) {
     closeLightbox();
     closePicker();
     closeActionMenu();
+    currentConversationId = null;
     chatScreen.classList.add("hidden");
-    conversationsScreen.classList.remove("hidden");
-    renderConversationList();
+    conversationsScreen.classList.add("hidden");
+    if (featuresScreen) featuresScreen.classList.add("hidden");
+    if (menuScreen) menuScreen.classList.add("hidden");
+    if (bottomNav) bottomNav.classList.remove("hidden");
+    navTabButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tab));
+
+    if (tab === "features" && featuresScreen) {
+      featuresScreen.classList.remove("hidden");
+    } else if (tab === "menu" && menuScreen) {
+      menuScreen.classList.remove("hidden");
+      refreshMenuProfile();
+    } else {
+      conversationsScreen.classList.remove("hidden");
+      renderConversationList();
+    }
   }
+
+  function showConversationsScreen() {
+    showBottomTab("chats");
+  }
+
+  navTabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => showBottomTab(btn.dataset.tab));
+  });
 
   function updateConvPresenceLine() {
     if (!convPresenceLine) return;
@@ -495,6 +561,9 @@
     updateAddPeopleVisibility(cachedConv);
     presenceLine.textContent = "connecting…";
     conversationsScreen.classList.add("hidden");
+    if (featuresScreen) featuresScreen.classList.add("hidden");
+    if (menuScreen) menuScreen.classList.add("hidden");
+    if (bottomNav) bottomNav.classList.add("hidden");
     chatScreen.classList.remove("hidden");
 
     socket.emit("open-conversation", { id }, (res) => {
@@ -786,47 +855,72 @@
   // ---------- My profile picture ----------
 
   function refreshMyAvatarButton() {
-    if (!myAvatarInner || !myName) return;
-    myAvatarInner.style.background = colorForName(myName);
-    myAvatarInner.innerHTML = avatarInnerHtml(myName);
+    if (!myName) return;
+    if (myAvatarInner) {
+      myAvatarInner.style.background = colorForName(myName);
+      myAvatarInner.innerHTML = avatarInnerHtml(myName);
+    }
+    if (menuAvatarInner) {
+      menuAvatarInner.style.background = colorForName(myName);
+      menuAvatarInner.innerHTML = avatarInnerHtml(myName);
+    }
+    if (menuProfileName) menuProfileName.textContent = myName;
+  }
+
+  function refreshMenuProfile() {
+    refreshMyAvatarButton();
+  }
+
+  // Shared by both the header avatar button and the Menu screen's avatar
+  // button — same upload flow, just triggered from two different buttons.
+  async function handleAvatarFileChosen(file, triggerBtn) {
+    if (!file || !socket) return;
+    if (!file.type.startsWith("image/")) {
+      renderSystem("That doesn't look like an image.");
+      return;
+    }
+    if (file.size > MAX_SOURCE_FILE_BYTES) {
+      renderSystem("That photo is too large — try a smaller one.");
+      return;
+    }
+    if (triggerBtn) triggerBtn.classList.add("uploading");
+    try {
+      const dataUrl = await compressAvatarImage(file);
+      socket.emit("set-avatar", { avatar: dataUrl }, (res) => {
+        if (triggerBtn) triggerBtn.classList.remove("uploading");
+        if (!res || res.error) {
+          renderSystem("Couldn't update your profile picture — try again.");
+          return;
+        }
+        avatars.set(myName, res.avatar);
+        refreshMyAvatarButton();
+        renderConversationList();
+        if (currentConversationId) {
+          const conv = conversationsMeta.get(currentConversationId);
+          if (conv) renderChatTitleAvatar(conv);
+          renderReadReceipts();
+        }
+      });
+    } catch (err) {
+      if (triggerBtn) triggerBtn.classList.remove("uploading");
+      renderSystem("Couldn't read that photo — try a different one.");
+    }
   }
 
   myAvatarBtn && myAvatarBtn.addEventListener("click", () => myAvatarInput && myAvatarInput.click());
   myAvatarInput &&
-    myAvatarInput.addEventListener("change", async () => {
+    myAvatarInput.addEventListener("change", () => {
       const file = myAvatarInput.files && myAvatarInput.files[0];
       myAvatarInput.value = "";
-      if (!file || !socket) return;
-      if (!file.type.startsWith("image/")) {
-        renderSystem("That doesn't look like an image.");
-        return;
-      }
-      if (file.size > MAX_SOURCE_FILE_BYTES) {
-        renderSystem("That photo is too large — try a smaller one.");
-        return;
-      }
-      myAvatarBtn.classList.add("uploading");
-      try {
-        const dataUrl = await compressAvatarImage(file);
-        socket.emit("set-avatar", { avatar: dataUrl }, (res) => {
-          myAvatarBtn.classList.remove("uploading");
-          if (!res || res.error) {
-            renderSystem("Couldn't update your profile picture — try again.");
-            return;
-          }
-          avatars.set(myName, res.avatar);
-          refreshMyAvatarButton();
-          renderConversationList();
-          if (currentConversationId) {
-            const conv = conversationsMeta.get(currentConversationId);
-            if (conv) renderChatTitleAvatar(conv);
-            renderReadReceipts();
-          }
-        });
-      } catch (err) {
-        myAvatarBtn.classList.remove("uploading");
-        renderSystem("Couldn't read that photo — try a different one.");
-      }
+      handleAvatarFileChosen(file, myAvatarBtn);
+    });
+
+  menuAvatarBtn && menuAvatarBtn.addEventListener("click", () => menuAvatarInput && menuAvatarInput.click());
+  menuAvatarInput &&
+    menuAvatarInput.addEventListener("change", () => {
+      const file = menuAvatarInput.files && menuAvatarInput.files[0];
+      menuAvatarInput.value = "";
+      handleAvatarFileChosen(file, menuAvatarBtn);
     });
 
   newChatBtn && newChatBtn.addEventListener("click", openNewChatModal);
@@ -1187,8 +1281,72 @@
     { passive: true }
   );
 
+  // ---------- Quiet hours (mutes message sounds during a set window) ----------
+
+  function loadQuietHours() {
+    try {
+      const raw = localStorage.getItem("quietHours");
+      if (!raw) return { enabled: false, start: "22:00", end: "08:00" };
+      const parsed = JSON.parse(raw);
+      return {
+        enabled: !!parsed.enabled,
+        start: parsed.start || "22:00",
+        end: parsed.end || "08:00",
+      };
+    } catch (e) {
+      return { enabled: false, start: "22:00", end: "08:00" };
+    }
+  }
+
+  let quietHours = loadQuietHours();
+
+  function saveQuietHours() {
+    localStorage.setItem("quietHours", JSON.stringify(quietHours));
+  }
+
+  function isQuietHoursActive() {
+    if (!quietHours.enabled) return false;
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const [sh, sm] = quietHours.start.split(":").map(Number);
+    const [eh, em] = quietHours.end.split(":").map(Number);
+    const startMinutes = sh * 60 + sm;
+    const endMinutes = eh * 60 + em;
+    if (startMinutes === endMinutes) return false;
+    if (startMinutes < endMinutes) {
+      // Same-day window, e.g. 13:00 -> 18:00
+      return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+    }
+    // Overnight window, e.g. 22:00 -> 08:00
+    return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+  }
+
+  function refreshQuietHoursUI() {
+    if (quietHoursToggle) quietHoursToggle.setAttribute("aria-pressed", String(quietHours.enabled));
+    if (quietStartInput) quietStartInput.value = quietHours.start;
+    if (quietEndInput) quietEndInput.value = quietHours.end;
+  }
+  refreshQuietHoursUI();
+
+  quietHoursToggle &&
+    quietHoursToggle.addEventListener("click", () => {
+      quietHours.enabled = !quietHours.enabled;
+      saveQuietHours();
+      refreshQuietHoursUI();
+    });
+  quietStartInput &&
+    quietStartInput.addEventListener("change", () => {
+      quietHours.start = quietStartInput.value || quietHours.start;
+      saveQuietHours();
+    });
+  quietEndInput &&
+    quietEndInput.addEventListener("change", () => {
+      quietHours.end = quietEndInput.value || quietHours.end;
+      saveQuietHours();
+    });
+
   function playPop(freq) {
-    if (!soundEnabled) return;
+    if (!soundEnabled || isQuietHoursActive()) return;
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
       const osc = audioCtx.createOscillator();
@@ -1203,12 +1361,25 @@
     } catch (e) {}
   }
 
-  soundToggle.addEventListener("click", () => {
-    soundEnabled = !soundEnabled;
+  function setSoundEnabled(next) {
+    soundEnabled = next;
     soundToggle.textContent = soundEnabled ? "🔔" : "🔕";
+    if (menuSoundToggle) menuSoundToggle.setAttribute("aria-pressed", String(soundEnabled));
+    localStorage.setItem("soundEnabled", soundEnabled ? "1" : "0");
+  }
+
+  const savedSoundEnabled = localStorage.getItem("soundEnabled");
+  if (savedSoundEnabled !== null) setSoundEnabled(savedSoundEnabled === "1");
+  else setSoundEnabled(true);
+
+  soundToggle.addEventListener("click", () => {
+    setSoundEnabled(!soundEnabled);
     soundToggle.classList.add("pulsing");
     setTimeout(() => soundToggle.classList.remove("pulsing"), 320);
   });
+
+  menuSoundToggle &&
+    menuSoundToggle.addEventListener("click", () => setSoundEnabled(!soundEnabled));
 
   function spawnHeartBurst(bubbleEl) {
     const wrap = bubbleEl.closest(".msg-bubble-wrap");
@@ -1969,9 +2140,7 @@
           conversationsScreen.classList.add("hidden");
           openConversationById(reopenId);
         } else {
-          chatScreen.classList.add("hidden");
-          conversationsScreen.classList.remove("hidden");
-          renderConversationList();
+          showConversationsScreen();
         }
 
         setupPush(myName);
@@ -2540,6 +2709,280 @@
   });
 
   sendBtn.addEventListener("click", send);
+
+  // ---------- Features tab: accordion cards ----------
+
+  if (featuresScreen) {
+    featuresScreen.querySelectorAll(".feature-card-head").forEach((head) => {
+      head.addEventListener("click", () => {
+        const card = head.closest(".feature-card");
+        const body = document.getElementById(`feature-body-${head.dataset.feature}`);
+        if (!card || !body) return;
+        const isOpen = !body.classList.contains("hidden");
+        // Accordion: close any other open card first.
+        featuresScreen.querySelectorAll(".feature-card-body").forEach((b) => {
+          if (b !== body) b.classList.add("hidden");
+        });
+        featuresScreen.querySelectorAll(".feature-card").forEach((c) => {
+          if (c !== card) c.classList.remove("expanded");
+        });
+        body.classList.toggle("hidden", isOpen);
+        card.classList.toggle("expanded", !isOpen);
+      });
+    });
+  }
+
+  // ---------- Features tab: Dice, 8-ball, coin flip, confetti ----------
+
+  diceRollBtn &&
+    diceRollBtn.addEventListener("click", () => {
+      const faces = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+      const roll = Math.floor(Math.random() * 6);
+      diceResult.classList.remove("rolling");
+      requestAnimationFrame(() => {
+        diceResult.classList.add("rolling");
+        diceResult.textContent = faces[roll];
+      });
+      if (navigator.vibrate) navigator.vibrate(12);
+    });
+
+  const EIGHT_BALL_ANSWERS = [
+    "Yes, definitely.",
+    "It is certain.",
+    "Without a doubt.",
+    "You may rely on it.",
+    "Most likely.",
+    "Signs point to yes.",
+    "Ask again later.",
+    "Cannot predict now.",
+    "Better not tell you now.",
+    "Concentrate and ask again.",
+    "Don't count on it.",
+    "My reply is no.",
+    "My sources say no.",
+    "Outlook not so good.",
+    "Very doubtful.",
+  ];
+
+  eightballAskBtn &&
+    eightballAskBtn.addEventListener("click", () => {
+      const answer = EIGHT_BALL_ANSWERS[Math.floor(Math.random() * EIGHT_BALL_ANSWERS.length)];
+      eightballAnswer.textContent = answer;
+      if (navigator.vibrate) navigator.vibrate(12);
+    });
+  eightballQuestion &&
+    eightballQuestion.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") eightballAskBtn.click();
+    });
+
+  coinFlipBtn &&
+    coinFlipBtn.addEventListener("click", () => {
+      const heads = Math.random() < 0.5;
+      coinResult.classList.remove("rolling");
+      requestAnimationFrame(() => {
+        coinResult.classList.add("rolling");
+        coinResult.textContent = heads ? "🪙 Heads" : "🪙 Tails";
+      });
+      if (navigator.vibrate) navigator.vibrate(12);
+    });
+
+  function burstConfetti() {
+    if (!confettiCanvas) return;
+    const ctx = confettiCanvas.getContext("2d");
+    confettiCanvas.width = window.innerWidth;
+    confettiCanvas.height = window.innerHeight;
+    confettiCanvas.classList.remove("hidden");
+
+    const colors = ["#7dd3fc", "#a78bfa", "#f472b6", "#fb923c", "#34d399", "#facc15", "#60a5fa"];
+    const pieces = Array.from({ length: 120 }, () => ({
+      x: Math.random() * confettiCanvas.width,
+      y: -20 - Math.random() * confettiCanvas.height * 0.4,
+      w: 6 + Math.random() * 5,
+      h: 8 + Math.random() * 6,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      vy: 2 + Math.random() * 3,
+      vx: -1.5 + Math.random() * 3,
+      rot: Math.random() * Math.PI,
+      vr: -0.15 + Math.random() * 0.3,
+    }));
+
+    const start = performance.now();
+    function frame(now) {
+      const elapsed = now - start;
+      ctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+      pieces.forEach((p) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.rot += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      });
+      if (elapsed < 2600) {
+        requestAnimationFrame(frame);
+      } else {
+        ctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+        confettiCanvas.classList.add("hidden");
+      }
+    }
+    requestAnimationFrame(frame);
+    if (navigator.vibrate) navigator.vibrate([10, 40, 10]);
+  }
+
+  confettiBtn && confettiBtn.addEventListener("click", burstConfetti);
+
+  // ---------- Features tab: Quick Poll (sends a formatted message to a chosen chat) ----------
+
+  function updatePollSendState() {
+    if (!pollSendBtn) return;
+    const question = pollQuestionInput.value.trim();
+    const filled = pollOptionInputs.map((i) => i.value.trim()).filter(Boolean);
+    pollSendBtn.disabled = !(question && filled.length >= 2);
+  }
+
+  pollQuestionInput && pollQuestionInput.addEventListener("input", updatePollSendState);
+  pollOptionInputs.forEach((input) => input && input.addEventListener("input", updatePollSendState));
+
+  function closePollPicker() {
+    closeOverlay(pollPickerModal);
+  }
+  pollPickerClose && pollPickerClose.addEventListener("click", closePollPicker);
+  pollPickerModal &&
+    pollPickerModal.addEventListener("click", (e) => {
+      if (e.target === pollPickerModal) closePollPicker();
+    });
+
+  function buildPollText() {
+    const numberEmoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"];
+    const question = pollQuestionInput.value.trim();
+    const lines = [`🗳️ POLL: ${question}`];
+    pollOptionInputs.forEach((input, i) => {
+      const val = input.value.trim();
+      if (val) lines.push(`${numberEmoji[i]} ${val}`);
+    });
+    lines.push("Reply with a number to vote!");
+    return lines.join("\n");
+  }
+
+  function renderPollPickerList() {
+    if (!pollPickerList) return;
+    const list = sortedConversations();
+    pollPickerList.innerHTML = "";
+    if (list.length === 0) {
+      pollPickerList.innerHTML = `<p class="new-chat-hint">Start a chat first from the Chats tab.</p>`;
+      return;
+    }
+    list.forEach((conv) => {
+      const row = document.createElement("div");
+      row.className = "member-row";
+      row.innerHTML = `
+        ${conversationAvatarHtml(conv)}
+        <p class="member-row-name">${escapeHtml(conversationTitle(conv))}</p>
+      `;
+      row.addEventListener("click", () => {
+        if (!socket) return;
+        socket.emit("message", { conversationId: conv.id, text: buildPollText() });
+        closePollPicker();
+        pollQuestionInput.value = "";
+        pollOptionInputs.forEach((input) => (input.value = ""));
+        updatePollSendState();
+        openConversationById(conv.id);
+      });
+      pollPickerList.appendChild(row);
+    });
+  }
+
+  pollSendBtn &&
+    pollSendBtn.addEventListener("click", () => {
+      if (pollSendBtn.disabled) return;
+      renderPollPickerList();
+      pollPickerModal.classList.remove("hidden");
+    });
+
+  // ---------- Features tab: personal to-do list (stored on this device) ----------
+
+  function loadTodos() {
+    try {
+      const raw = localStorage.getItem("featuresTodo");
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  let todos = loadTodos();
+  function saveTodos() {
+    localStorage.setItem("featuresTodo", JSON.stringify(todos));
+  }
+
+  function renderTodos() {
+    if (!todoListEl) return;
+    todoListEl.innerHTML = "";
+    todoEmpty.classList.toggle("hidden", todos.length > 0);
+    todos.forEach((item) => {
+      const li = document.createElement("li");
+      li.className = `todo-item${item.done ? " done" : ""}`;
+      li.innerHTML = `
+        <button class="todo-check" type="button" aria-label="Toggle done">${item.done ? "✓" : ""}</button>
+        <span class="todo-text">${escapeHtml(item.text)}</span>
+        <button class="todo-delete" type="button" aria-label="Delete task">✕</button>
+      `;
+      li.querySelector(".todo-check").addEventListener("click", () => {
+        item.done = !item.done;
+        saveTodos();
+        renderTodos();
+      });
+      li.querySelector(".todo-delete").addEventListener("click", () => {
+        todos = todos.filter((t) => t.id !== item.id);
+        saveTodos();
+        renderTodos();
+      });
+      todoListEl.appendChild(li);
+    });
+  }
+  renderTodos();
+
+  function addTodo() {
+    const text = todoInput.value.trim();
+    if (!text) return;
+    todos.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, text, done: false });
+    todoInput.value = "";
+    saveTodos();
+    renderTodos();
+  }
+  todoAddBtn && todoAddBtn.addEventListener("click", addTodo);
+  todoInput &&
+    todoInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") addTodo();
+    });
+
+  // ---------- Menu tab: log out ----------
+
+  function showLogoutModal() {
+    logoutModal && logoutModal.classList.remove("hidden");
+  }
+  function hideLogoutModal() {
+    closeOverlay(logoutModal);
+  }
+
+  menuLogoutBtn && menuLogoutBtn.addEventListener("click", showLogoutModal);
+  logoutCancelBtn && logoutCancelBtn.addEventListener("click", hideLogoutModal);
+  logoutModal &&
+    logoutModal.addEventListener("click", (e) => {
+      if (e.target === logoutModal) hideLogoutModal();
+    });
+  logoutConfirmBtn &&
+    logoutConfirmBtn.addEventListener("click", () => {
+      localStorage.removeItem("chatName");
+      localStorage.removeItem("chatPassword");
+      if (socket) {
+        socket.disconnect();
+        socket = null;
+      }
+      location.reload();
+    });
 
   // ---------- Exit confirmation ----------
 
