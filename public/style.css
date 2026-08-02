@@ -449,6 +449,17 @@ img.emoji {
   margin-bottom: 10px;
 }
 
+/* A jumbo emoji bubble has almost no padding (it's basically just the emoji
+   art), so the reaction chip's usual bottom:-9px corner-overlap trick would
+   land right on top of the emoji itself instead of empty padding. Push it
+   further down and free up extra room underneath for jumbo bubbles only. */
+.msg-bubble-wrap:has(.msg-bubble-jumbo):has(.reaction-row:not(:empty)) {
+  margin-bottom: 18px;
+}
+.msg-bubble-wrap:has(.msg-bubble-jumbo) .reaction-row {
+  bottom: -16px;
+}
+
 .msg-bubble {
   padding: 10px 13px;
   border-radius: var(--bubble-radius);
