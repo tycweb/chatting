@@ -392,6 +392,15 @@ app.get("/api/vapid-public-key", (req, res) => {
   res.json({ key: VAPID_PUBLIC_KEY });
 });
 
+// Temporary diagnostic endpoint: the client pings this at each step of push
+// setup so failures show up in the Render logs, since we can't get to the
+// phone's own browser console remotely. Safe to remove once push works.
+app.post("/api/push-debug", (req, res) => {
+  const { step, ok, error, name } = req.body || {};
+  console.log(`[push-debug] ${name || "?"} — ${step}: ${ok ? "OK" : "FAILED"}${error ? " — " + error : ""}`);
+  res.status(200).json({});
+});
+
 app.post("/api/subscribe", (req, res) => {
   const { name, subscription } = req.body || {};
   if (!name || !subscription || !subscription.endpoint) {
