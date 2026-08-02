@@ -72,6 +72,16 @@
   const enhancerActions = document.getElementById("enhancer-actions");
   const enhancerDownloadBtn = document.getElementById("enhancer-download-btn");
   const enhancerSendBtn = document.getElementById("enhancer-send-btn");
+
+  const removebgFileInput = document.getElementById("removebg-file-input");
+  const removebgChooseBtn = document.getElementById("removebg-choose-btn");
+  const removebgChooseAgainBtn = document.getElementById("removebg-choose-again-btn");
+  const removebgStatus = document.getElementById("removebg-status");
+  const removebgPreviewWrap = document.getElementById("removebg-preview-wrap");
+  const removebgCanvas = document.getElementById("removebg-canvas");
+  const removebgActions = document.getElementById("removebg-actions");
+  const removebgDownloadBtn = document.getElementById("removebg-download-btn");
+  const removebgSendBtn = document.getElementById("removebg-send-btn");
   const pollQuestionInput = document.getElementById("poll-question");
   const pollOptionInputs = [1, 2, 3, 4].map((i) => document.getElementById(`poll-option-${i}`));
   const pollSendBtn = document.getElementById("poll-send-btn");
@@ -3124,6 +3134,134 @@
       const dataUrl = enhancedCanvasToDataUrl();
       openChatPicker("Send enhanced photo to…", (conv) => {
         socket.emit("message", { conversationId: conv.id, image: dataUrl });
+        openConversationById(conv.id);
+      });
+    });
+
+  // ---------- Features tab: Remove Background ----------
+  // Fully on-device: BodyPix (TensorFlow.js) segments the main subject in
+  // the browser and the background is made transparent. No photo ever
+  // leaves the device unless "Send to chat" is tapped.
+
+  const REMOVEBG_MAX_DIMENSION = 1024;
+
+  let removebgResultDataUrl = null;
+  let bodyPixNet = null;
+  let bodyPixFailed = false;
+
+  async function getBodyPixNet() {
+    if (bodyPixNet || bodyPixFailed) return bodyPixNet;
+    if (typeof window.bodyPix === "undefined") {
+      bodyPixFailed = true;
+      return null;
+    }
+    try {
+      bodyPixNet = await window.bodyPix.load({
+        architecture: "MobileNetV1",
+        outputStride: 16,
+        multiplier: 0.75,
+        quantBytes: 2,
+      });
+    } catch (e) {
+      bodyPixFailed = true;
+      bodyPixNet = null;
+    }
+    return bodyPixNet;
+  }
+
+  function resetRemovebgUI() {
+    if (removebgPreviewWrap) removebgPreviewWrap.classList.add("hidden");
+    if (removebgActions) removebgActions.classList.add("hidden");
+    if (removebgStatus) removebgStatus.classList.add("hidden");
+    removebgResultDataUrl = null;
+  }
+
+  async function runRemoveBackground(file) {
+    if (!file || !file.type.startsWith("image/")) {
+      renderSystem("That doesn't look like an image.");
+      return;
+    }
+    if (file.size > MAX_SOURCE_FILE_BYTES) {
+      renderSystem("That photo is too large — try a smaller one.");
+      return;
+    }
+    resetRemovebgUI();
+    removebgStatus.classList.remove("hidden");
+    removebgStatus.textContent = "Removing background…";
+    await nextPaint();
+    try {
+      const net = await getBodyPixNet();
+      if (!net) {
+        removebgStatus.classList.add("hidden");
+        renderSystem("Remove Background isn't available right now — try again in a moment.");
+        return;
+      }
+
+      const img = await loadImageFromFile(file);
+      let { width, height } = img;
+      if (width > REMOVEBG_MAX_DIMENSION || height > REMOVEBG_MAX_DIMENSION) {
+        const scale = REMOVEBG_MAX_DIMENSION / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+
+      const srcCanvas = document.createElement("canvas");
+      srcCanvas.width = width;
+      srcCanvas.height = height;
+      srcCanvas.getContext("2d").drawImage(img, 0, 0, width, height);
+
+      const segmentation = await net.segmentPerson(srcCanvas, {
+        internalResolution: "medium",
+        segmentationThreshold: 0.7,
+      });
+
+      removebgCanvas.width = width;
+      removebgCanvas.height = height;
+      const ctx = removebgCanvas.getContext("2d");
+      ctx.drawImage(srcCanvas, 0, 0);
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const { data } = imageData;
+      const mask = segmentation.data;
+      for (let i = 0; i < mask.length; i++) {
+        if (mask[i] === 0) data[i * 4 + 3] = 0; // background pixel -> transparent
+      }
+      ctx.putImageData(imageData, 0, 0);
+
+      removebgResultDataUrl = removebgCanvas.toDataURL("image/png");
+      removebgStatus.classList.add("hidden");
+      removebgPreviewWrap.classList.remove("hidden");
+      removebgActions.classList.remove("hidden");
+    } catch (err) {
+      removebgStatus.classList.add("hidden");
+      renderSystem("Couldn't remove the background from that photo — try a different one.");
+    }
+  }
+
+  removebgChooseBtn && removebgChooseBtn.addEventListener("click", () => removebgFileInput.click());
+  removebgChooseAgainBtn && removebgChooseAgainBtn.addEventListener("click", () => removebgFileInput.click());
+  removebgFileInput &&
+    removebgFileInput.addEventListener("change", () => {
+      const file = removebgFileInput.files && removebgFileInput.files[0];
+      removebgFileInput.value = "";
+      if (file) runRemoveBackground(file);
+    });
+
+  removebgDownloadBtn &&
+    removebgDownloadBtn.addEventListener("click", () => {
+      if (!removebgResultDataUrl) return;
+      const a = document.createElement("a");
+      a.href = removebgResultDataUrl;
+      a.download = "no-background.png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+
+  removebgSendBtn &&
+    removebgSendBtn.addEventListener("click", () => {
+      if (!removebgResultDataUrl || !socket) return;
+      openChatPicker("Send photo to…", (conv) => {
+        socket.emit("message", { conversationId: conv.id, image: removebgResultDataUrl });
         openConversationById(conv.id);
       });
     });

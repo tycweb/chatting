@@ -107,6 +107,30 @@
             <p class="new-chat-hint">Auto-brightens, lifts contrast, and sharpens — good for dark, flat, or hazy photos.</p>
           </div>
         </div>
+
+        <div class="feature-card">
+          <button class="feature-card-head" data-feature="removebg" type="button">
+            <span class="feature-card-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></span>
+            <span class="feature-card-label">Remove Background</span>
+            <span class="feature-card-chevron">›</span>
+          </button>
+          <div id="feature-body-removebg" class="feature-card-body hidden">
+            <input id="removebg-file-input" type="file" accept="image/*" hidden />
+            <button id="removebg-choose-btn" class="btn-primary" type="button">Choose a photo</button>
+            <p id="removebg-status" class="feature-answer hidden">Removing background…</p>
+            <div id="removebg-preview-wrap" class="enhancer-preview-wrap removebg-preview-wrap hidden">
+              <canvas id="removebg-canvas" class="enhancer-canvas"></canvas>
+            </div>
+            <div id="removebg-actions" class="enhancer-actions hidden">
+              <button id="removebg-choose-again-btn" class="icon-btn enhancer-icon-btn" aria-label="Choose a different photo" type="button">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.8"/><path d="m21 15-5-5L5 21"/></svg>
+              </button>
+              <button id="removebg-download-btn" class="btn-primary enhancer-action-btn" type="button">Download PNG</button>
+              <button id="removebg-send-btn" class="btn-primary enhancer-action-btn" type="button">Send to chat</button>
+            </div>
+            <p class="new-chat-hint">On-device — works best with one clear person or object in frame. Downloads as a transparent PNG.</p>
+          </div>
+        </div>
       </section>
 
       <section class="features-section">
@@ -408,6 +432,11 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-medium@latest/dist/umd/2x.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/upscaler@latest/dist/browser/umd/upscaler.min.js"></script>
+  <!-- BodyPix: free, on-device person segmentation (TensorFlow.js) for the
+       Remove Background tool. No API key, no upload — runs entirely locally.
+       If this fails to load, Remove Background shows a friendly error instead
+       of hard-failing. -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@latest/dist/body-pix.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
