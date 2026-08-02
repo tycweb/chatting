@@ -92,6 +92,7 @@
             <input id="enhancer-file-input" type="file" accept="image/*" hidden />
             <button id="enhancer-choose-btn" class="btn-primary" type="button">Choose a photo</button>
             <p id="enhancer-status" class="feature-answer hidden">Enhancing…</p>
+            <p id="enhancer-mode-note" class="feature-answer enhancer-mode-note hidden"></p>
             <div id="enhancer-preview-wrap" class="enhancer-preview-wrap hidden">
               <canvas id="enhancer-canvas" class="enhancer-canvas"></canvas>
               <button id="enhancer-compare-btn" class="enhancer-compare-btn" type="button">Hold to compare</button>
@@ -400,6 +401,13 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@twemoji/api@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
+  <!-- UpscalerJS: free, on-device AI photo upscaling/enhancement (TensorFlow.js).
+       No API key, no server call, no cost — runs entirely in the browser.
+       If this fails to load (offline, blocked CDN, etc.) the Photo Enhancer
+       falls back to the plain auto-levels/sharpen version automatically. -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@latest/dist/umd/index.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/upscaler@latest/dist/browser/umd/upscaler.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -65,6 +65,7 @@
   const enhancerChooseBtn = document.getElementById("enhancer-choose-btn");
   const enhancerChooseAgainBtn = document.getElementById("enhancer-choose-again-btn");
   const enhancerStatus = document.getElementById("enhancer-status");
+  const enhancerModeNote = document.getElementById("enhancer-mode-note");
   const enhancerPreviewWrap = document.getElementById("enhancer-preview-wrap");
   const enhancerCanvas = document.getElementById("enhancer-canvas");
   const enhancerCompareBtn = document.getElementById("enhancer-compare-btn");
@@ -2901,6 +2902,7 @@
     if (enhancerPreviewWrap) enhancerPreviewWrap.classList.add("hidden");
     if (enhancerActions) enhancerActions.classList.add("hidden");
     if (enhancerStatus) enhancerStatus.classList.add("hidden");
+    if (enhancerModeNote) enhancerModeNote.classList.add("hidden");
     enhancerOriginalImageData = null;
     enhancerEnhancedImageData = null;
     enhancerShowingOriginal = false;
@@ -2921,6 +2923,53 @@
     });
   }
 
+  function loadImageFromSrc(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Could not decode upscaled image"));
+      img.onload = () => resolve(img);
+      img.src = src;
+    });
+  }
+
+  // ---- AI upscaling (UpscalerJS, free + fully on-device, no API key) ----
+  // Loaded via CDN <script> tags in index.html. If those failed (offline,
+  // blocked CDN, ad blocker, whatever) window.Upscaler just won't exist and
+  // we quietly fall back to the plain auto-levels/sharpen enhancer below —
+  // the feature should never hard-fail just because the AI model didn't load.
+  const AI_UPSCALE_MAX_INPUT_DIMENSION = 640; // keep inference fast on phones
+  let aiUpscaler = null;
+  let aiUpscalerFailed = false;
+
+  function getAiUpscaler() {
+    if (aiUpscaler || aiUpscalerFailed) return aiUpscaler;
+    if (typeof window.Upscaler === "undefined" || typeof window.DefaultUpscalerJSModel === "undefined") {
+      aiUpscalerFailed = true;
+      return null;
+    }
+    try {
+      aiUpscaler = new window.Upscaler({ model: window.DefaultUpscalerJSModel });
+    } catch (e) {
+      aiUpscalerFailed = true;
+      aiUpscaler = null;
+    }
+    return aiUpscaler;
+  }
+
+  // Runs the actual AI super-resolution model on the image and returns a
+  // freshly-loaded <img> of the (typically 2x) result, or null if the model
+  // isn't available / errors out, so the caller can fall back gracefully.
+  async function aiUpscaleImage(img) {
+    const upscaler = getAiUpscaler();
+    if (!upscaler) return null;
+    try {
+      const src = await upscaler.upscale(img, { patchSize: 64, padding: 6 });
+      return await loadImageFromSrc(src);
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function runEnhancer(file) {
     if (!file || !file.type.startsWith("image/")) {
       renderSystem("That doesn't look like an image.");
@@ -2932,34 +2981,86 @@
     }
     resetEnhancerUI();
     enhancerStatus.classList.remove("hidden");
+    enhancerStatus.textContent = "Enhancing…";
     await nextPaint();
     try {
-      const img = await loadImageFromFile(file);
-      let { width, height } = img;
-      if (width > ENHANCER_MAX_DIMENSION || height > ENHANCER_MAX_DIMENSION) {
-        const scale = ENHANCER_MAX_DIMENSION / Math.max(width, height);
-        width = Math.round(width * scale);
-        height = Math.round(height * scale);
+      let img = await loadImageFromFile(file);
+
+      // Original (pre-enhance) preview, capped at the normal max dimension.
+      let { width: origW, height: origH } = img;
+      if (origW > ENHANCER_MAX_DIMENSION || origH > ENHANCER_MAX_DIMENSION) {
+        const scale = ENHANCER_MAX_DIMENSION / Math.max(origW, origH);
+        origW = Math.round(origW * scale);
+        origH = Math.round(origH * scale);
       }
-      enhancerCanvas.width = width;
-      enhancerCanvas.height = height;
-      const ctx = enhancerCanvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, width, height);
+      const originalCanvas = document.createElement("canvas");
+      originalCanvas.width = origW;
+      originalCanvas.height = origH;
+      originalCanvas.getContext("2d").drawImage(img, 0, 0, origW, origH);
 
-      const original = ctx.getImageData(0, 0, width, height);
-      enhancerOriginalImageData = new ImageData(new Uint8ClampedArray(original.data), width, height);
+      // Feed the AI model a downscaled copy so inference stays fast on a
+      // phone — the model itself is adding detail back in, so we don't need
+      // a huge input for a good-looking result.
+      let aiInput = img;
+      if (Math.max(img.width, img.height) > AI_UPSCALE_MAX_INPUT_DIMENSION) {
+        const scale = AI_UPSCALE_MAX_INPUT_DIMENSION / Math.max(img.width, img.height);
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        aiInput = await loadImageFromSrc(c.toDataURL());
+      }
 
-      // Let the "Enhancing…" state actually paint before the (synchronous,
-      // can take a few hundred ms on a big photo) pixel work begins.
       await nextPaint();
-      const enhanced = new ImageData(new Uint8ClampedArray(original.data), width, height);
-      autoLevels(enhanced.data);
-      unsharpMask(enhanced.data, width, height);
-      enhancerEnhancedImageData = enhanced;
+      const aiResult = await aiUpscaleImage(aiInput);
+      const usedAi = !!aiResult;
 
-      ctx.putImageData(enhanced, 0, 0);
+      let width, height, ctx;
+      if (usedAi) {
+        // Cap the final output so it doesn't balloon into a multi-megabyte
+        // send/download just because the model doubled the resolution.
+        const scale = Math.min(1, ENHANCER_MAX_DIMENSION / Math.max(aiResult.width, aiResult.height));
+        width = Math.round(aiResult.width * scale);
+        height = Math.round(aiResult.height * scale);
+        enhancerCanvas.width = width;
+        enhancerCanvas.height = height;
+        ctx = enhancerCanvas.getContext("2d");
+        ctx.drawImage(aiResult, 0, 0, width, height);
+        // A light auto-levels pass on top still helps flat/hazy photos —
+        // the AI model sharpens/denoises but doesn't correct exposure.
+        const enhanced = ctx.getImageData(0, 0, width, height);
+        autoLevels(enhanced.data);
+        ctx.putImageData(enhanced, 0, 0);
+        enhancerEnhancedImageData = enhanced;
+      } else {
+        // Fallback: original on-device auto-levels + unsharp mask.
+        width = origW;
+        height = origH;
+        enhancerCanvas.width = width;
+        enhancerCanvas.height = height;
+        ctx = enhancerCanvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        const enhanced = ctx.getImageData(0, 0, width, height);
+        autoLevels(enhanced.data);
+        unsharpMask(enhanced.data, width, height);
+        enhancerEnhancedImageData = enhanced;
+        ctx.putImageData(enhanced, 0, 0);
+      }
+
+      // "Original" for the compare view always matches the enhanced canvas
+      // size so the before/after swap doesn't jump/resize.
+      const cmp = document.createElement("canvas");
+      cmp.width = width;
+      cmp.height = height;
+      cmp.getContext("2d").drawImage(originalCanvas, 0, 0, width, height);
+      enhancerOriginalImageData = cmp.getContext("2d").getImageData(0, 0, width, height);
+
       enhancerShowingOriginal = false;
       enhancerStatus.classList.add("hidden");
+      if (enhancerModeNote) {
+        enhancerModeNote.textContent = usedAi ? "✨ Enhanced with on-device AI" : "Enhanced (basic mode)";
+        enhancerModeNote.classList.remove("hidden");
+      }
       enhancerPreviewWrap.classList.remove("hidden");
       enhancerActions.classList.remove("hidden");
     } catch (err) {

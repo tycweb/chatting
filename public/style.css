@@ -2313,6 +2313,12 @@ img.emoji {
   font-weight: 600;
 }
 
+.enhancer-mode-note {
+  font-size: 11.5px;
+  color: var(--gray-1);
+  font-weight: 500;
+}
+
 .todo-add-row { display: flex; gap: 8px; align-items: center; }
 .todo-add-row .name-input { flex: 1; padding: 10px 14px; }
 
