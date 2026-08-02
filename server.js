@@ -341,8 +341,41 @@ const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "YOUR_VAPID_PRIVATE_K
 
 webpush.setVapidDetails("mailto:you@example.com", VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
-// name -> array of push subscriptions (in-memory; resets on restart, same as before)
+// name -> array of push subscriptions. Persisted to Redis (see below) so a
+// Render restart/cold-start doesn't silently wipe everyone's subscriptions —
+// previously this was in-memory only, which meant push notifications quietly
+// stopped working for a device until that person happened to reopen the app.
 const pushSubscriptions = new Map();
+const PUSH_SUBS_KEY = "tycept:push-subs:v1";
+let pushSubsSaveTimer = null;
+function savePushSubsToRedis() {
+  if (!redisClient) return;
+  clearTimeout(pushSubsSaveTimer);
+  pushSubsSaveTimer = setTimeout(async () => {
+    try {
+      await redisClient.set(PUSH_SUBS_KEY, JSON.stringify(Array.from(pushSubscriptions.entries())));
+    } catch (err) {
+      console.error("Failed to save push subscriptions to Redis:", err.message);
+    }
+  }, 250);
+}
+async function loadPushSubsFromRedis() {
+  if (!redisClient) return;
+  try {
+    const raw = await redisClient.get(PUSH_SUBS_KEY);
+    if (raw) {
+      const entries = JSON.parse(raw);
+      if (Array.isArray(entries)) {
+        for (const [name, subs] of entries) {
+          if (name && Array.isArray(subs)) pushSubscriptions.set(name, subs);
+        }
+      }
+      console.log(`Loaded push subscriptions for ${pushSubscriptions.size} user(s) from Redis.`);
+    }
+  } catch (err) {
+    console.error("Failed to load push subscriptions from Redis:", err.message);
+  }
+}
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -368,6 +401,7 @@ app.post("/api/subscribe", (req, res) => {
   const exists = list.some((s) => s.endpoint === subscription.endpoint);
   if (!exists) list.push(subscription);
   pushSubscriptions.set(name, list);
+  savePushSubsToRedis();
   res.status(201).json({});
 });
 
@@ -385,13 +419,18 @@ async function notifyNewMessage(msg, conv) {
     const subs = pushSubscriptions.get(name) || [];
     for (const sub of subs) {
       try {
-        await webpush.sendNotification(sub, payload);
+        // urgency: "high" + a short TTL tells the browser's push service
+        // (FCM/APNs/etc.) this shouldn't be deferred for battery savings —
+        // without it, some Android devices in Doze mode can sit on a
+        // "normal" priority push for quite a while before delivering it.
+        await webpush.sendNotification(sub, payload, { urgency: "high", TTL: 60 });
       } catch (err) {
         if (err.statusCode === 410 || err.statusCode === 404) {
           const remaining = (pushSubscriptions.get(name) || []).filter(
             (s) => s.endpoint !== sub.endpoint
           );
           pushSubscriptions.set(name, remaining);
+          savePushSubsToRedis();
         } else {
           console.error("Push failed:", err.message);
         }
@@ -989,6 +1028,7 @@ async function start() {
     try {
       await redisClient.connect();
       await loadStateFromRedis();
+      await loadPushSubsFromRedis();
     } catch (err) {
       console.error("Could not connect to Redis, starting with empty state:", err.message);
       ensureDefaultRoom();
