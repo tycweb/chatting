@@ -80,49 +80,32 @@
     </header>
     <main id="features-list" class="features-list">
       <section class="features-section">
-        <p class="features-section-title">Fun</p>
+        <p class="features-section-title">Tools</p>
 
         <div class="feature-card">
-          <button class="feature-card-head" data-feature="dice" type="button">
-            <span class="feature-card-icon">🎲</span>
-            <span class="feature-card-label">Dice Roller</span>
+          <button class="feature-card-head" data-feature="enhancer" type="button">
+            <span class="feature-card-icon">🪄</span>
+            <span class="feature-card-label">Photo Enhancer</span>
             <span class="feature-card-chevron">›</span>
           </button>
-          <div id="feature-body-dice" class="feature-card-body hidden">
-            <div id="dice-result" class="feature-result">🎲</div>
-            <button id="dice-roll-btn" class="btn-primary" type="button">Roll</button>
+          <div id="feature-body-enhancer" class="feature-card-body hidden">
+            <input id="enhancer-file-input" type="file" accept="image/*" hidden />
+            <button id="enhancer-choose-btn" class="btn-primary" type="button">Choose a photo</button>
+            <p id="enhancer-status" class="feature-answer hidden">Enhancing…</p>
+            <div id="enhancer-preview-wrap" class="enhancer-preview-wrap hidden">
+              <canvas id="enhancer-canvas" class="enhancer-canvas"></canvas>
+              <button id="enhancer-compare-btn" class="enhancer-compare-btn" type="button">Hold to compare</button>
+            </div>
+            <div id="enhancer-actions" class="enhancer-actions hidden">
+              <button id="enhancer-choose-again-btn" class="icon-btn enhancer-icon-btn" aria-label="Choose a different photo" type="button">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.8"/><path d="m21 15-5-5L5 21"/></svg>
+              </button>
+              <button id="enhancer-download-btn" class="btn-primary enhancer-action-btn" type="button">Download</button>
+              <button id="enhancer-send-btn" class="btn-primary enhancer-action-btn" type="button">Send to chat</button>
+            </div>
+            <p class="new-chat-hint">Auto-brightens, lifts contrast, and sharpens — good for dark, flat, or hazy photos.</p>
           </div>
         </div>
-
-        <div class="feature-card">
-          <button class="feature-card-head" data-feature="eightball" type="button">
-            <span class="feature-card-icon">🎱</span>
-            <span class="feature-card-label">Magic 8-Ball</span>
-            <span class="feature-card-chevron">›</span>
-          </button>
-          <div id="feature-body-eightball" class="feature-card-body hidden">
-            <input id="eightball-question" class="name-input" maxlength="120" placeholder="Ask a yes/no question…" autocomplete="off" />
-            <button id="eightball-ask-btn" class="btn-primary" type="button">Ask the ball</button>
-            <p id="eightball-answer" class="feature-answer"></p>
-          </div>
-        </div>
-
-        <div class="feature-card">
-          <button class="feature-card-head" data-feature="coin" type="button">
-            <span class="feature-card-icon">🪙</span>
-            <span class="feature-card-label">Coin Flip</span>
-            <span class="feature-card-chevron">›</span>
-          </button>
-          <div id="feature-body-coin" class="feature-card-body hidden">
-            <div id="coin-result" class="feature-result">🪙</div>
-            <button id="coin-flip-btn" class="btn-primary" type="button">Flip</button>
-          </div>
-        </div>
-
-        <button id="confetti-btn" class="feature-card feature-card-instant" type="button">
-          <span class="feature-card-icon">🎉</span>
-          <span class="feature-card-label">Confetti Blast</span>
-        </button>
       </section>
 
       <section class="features-section">
@@ -228,14 +211,14 @@
     </div>
   </div>
 
-  <!-- Poll destination picker -->
-  <div id="poll-picker-modal" class="new-chat-modal hidden">
+  <!-- Generic "send to a chat" picker, reused by Quick Poll and Photo Enhancer -->
+  <div id="chat-picker-modal" class="new-chat-modal hidden">
     <div class="new-chat-card">
       <div class="new-chat-head">
-        <p class="new-chat-title">Send poll to…</p>
-        <button id="poll-picker-close" class="new-chat-close" type="button">✕</button>
+        <p id="chat-picker-title" class="new-chat-title">Send to…</p>
+        <button id="chat-picker-close" class="new-chat-close" type="button">✕</button>
       </div>
-      <div id="poll-picker-list" class="member-list"></div>
+      <div id="chat-picker-list" class="member-list"></div>
     </div>
   </div>
 
@@ -254,9 +237,6 @@
       <span>Menu</span>
     </button>
   </nav>
-
-  <!-- Confetti overlay -->
-  <canvas id="confetti-canvas" class="confetti-canvas hidden"></canvas>
 
   <!-- New chat modal -->
   <div id="new-chat-modal" class="new-chat-modal hidden">

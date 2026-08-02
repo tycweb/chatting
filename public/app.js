@@ -61,21 +61,24 @@
 
   // Features screen UI
   const featuresScreen = document.getElementById("features-screen");
-  const diceResult = document.getElementById("dice-result");
-  const diceRollBtn = document.getElementById("dice-roll-btn");
-  const eightballQuestion = document.getElementById("eightball-question");
-  const eightballAskBtn = document.getElementById("eightball-ask-btn");
-  const eightballAnswer = document.getElementById("eightball-answer");
-  const coinResult = document.getElementById("coin-result");
-  const coinFlipBtn = document.getElementById("coin-flip-btn");
-  const confettiBtn = document.getElementById("confetti-btn");
-  const confettiCanvas = document.getElementById("confetti-canvas");
+  const enhancerFileInput = document.getElementById("enhancer-file-input");
+  const enhancerChooseBtn = document.getElementById("enhancer-choose-btn");
+  const enhancerChooseAgainBtn = document.getElementById("enhancer-choose-again-btn");
+  const enhancerStatus = document.getElementById("enhancer-status");
+  const enhancerPreviewWrap = document.getElementById("enhancer-preview-wrap");
+  const enhancerCanvas = document.getElementById("enhancer-canvas");
+  const enhancerCompareBtn = document.getElementById("enhancer-compare-btn");
+  const enhancerActions = document.getElementById("enhancer-actions");
+  const enhancerDownloadBtn = document.getElementById("enhancer-download-btn");
+  const enhancerSendBtn = document.getElementById("enhancer-send-btn");
   const pollQuestionInput = document.getElementById("poll-question");
   const pollOptionInputs = [1, 2, 3, 4].map((i) => document.getElementById(`poll-option-${i}`));
   const pollSendBtn = document.getElementById("poll-send-btn");
-  const pollPickerModal = document.getElementById("poll-picker-modal");
-  const pollPickerList = document.getElementById("poll-picker-list");
-  const pollPickerClose = document.getElementById("poll-picker-close");
+  // Generic "send to a chat" picker, shared by Quick Poll and Photo Enhancer
+  const chatPickerModal = document.getElementById("chat-picker-modal");
+  const chatPickerTitle = document.getElementById("chat-picker-title");
+  const chatPickerList = document.getElementById("chat-picker-list");
+  const chatPickerClose = document.getElementById("chat-picker-close");
   const todoInput = document.getElementById("todo-input");
   const todoAddBtn = document.getElementById("todo-add-btn");
   const todoListEl = document.getElementById("todo-list");
@@ -2732,107 +2735,43 @@
     });
   }
 
-  // ---------- Features tab: Dice, 8-ball, coin flip, confetti ----------
+  // ---------- Shared "send to a chat" picker (Quick Poll + Photo Enhancer) ----------
 
-  diceRollBtn &&
-    diceRollBtn.addEventListener("click", () => {
-      const faces = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
-      const roll = Math.floor(Math.random() * 6);
-      diceResult.classList.remove("rolling");
-      requestAnimationFrame(() => {
-        diceResult.classList.add("rolling");
-        diceResult.textContent = faces[roll];
-      });
-      if (navigator.vibrate) navigator.vibrate(12);
-    });
-
-  const EIGHT_BALL_ANSWERS = [
-    "Yes, definitely.",
-    "It is certain.",
-    "Without a doubt.",
-    "You may rely on it.",
-    "Most likely.",
-    "Signs point to yes.",
-    "Ask again later.",
-    "Cannot predict now.",
-    "Better not tell you now.",
-    "Concentrate and ask again.",
-    "Don't count on it.",
-    "My reply is no.",
-    "My sources say no.",
-    "Outlook not so good.",
-    "Very doubtful.",
-  ];
-
-  eightballAskBtn &&
-    eightballAskBtn.addEventListener("click", () => {
-      const answer = EIGHT_BALL_ANSWERS[Math.floor(Math.random() * EIGHT_BALL_ANSWERS.length)];
-      eightballAnswer.textContent = answer;
-      if (navigator.vibrate) navigator.vibrate(12);
-    });
-  eightballQuestion &&
-    eightballQuestion.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") eightballAskBtn.click();
-    });
-
-  coinFlipBtn &&
-    coinFlipBtn.addEventListener("click", () => {
-      const heads = Math.random() < 0.5;
-      coinResult.classList.remove("rolling");
-      requestAnimationFrame(() => {
-        coinResult.classList.add("rolling");
-        coinResult.textContent = heads ? "🪙 Heads" : "🪙 Tails";
-      });
-      if (navigator.vibrate) navigator.vibrate(12);
-    });
-
-  function burstConfetti() {
-    if (!confettiCanvas) return;
-    const ctx = confettiCanvas.getContext("2d");
-    confettiCanvas.width = window.innerWidth;
-    confettiCanvas.height = window.innerHeight;
-    confettiCanvas.classList.remove("hidden");
-
-    const colors = ["#7dd3fc", "#a78bfa", "#f472b6", "#fb923c", "#34d399", "#facc15", "#60a5fa"];
-    const pieces = Array.from({ length: 120 }, () => ({
-      x: Math.random() * confettiCanvas.width,
-      y: -20 - Math.random() * confettiCanvas.height * 0.4,
-      w: 6 + Math.random() * 5,
-      h: 8 + Math.random() * 6,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      vy: 2 + Math.random() * 3,
-      vx: -1.5 + Math.random() * 3,
-      rot: Math.random() * Math.PI,
-      vr: -0.15 + Math.random() * 0.3,
-    }));
-
-    const start = performance.now();
-    function frame(now) {
-      const elapsed = now - start;
-      ctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
-      pieces.forEach((p) => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.rot += p.vr;
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.rot);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.restore();
-      });
-      if (elapsed < 2600) {
-        requestAnimationFrame(frame);
-      } else {
-        ctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
-        confettiCanvas.classList.add("hidden");
-      }
-    }
-    requestAnimationFrame(frame);
-    if (navigator.vibrate) navigator.vibrate([10, 40, 10]);
+  function closeChatPicker() {
+    closeOverlay(chatPickerModal);
   }
+  chatPickerClose && chatPickerClose.addEventListener("click", closeChatPicker);
+  chatPickerModal &&
+    chatPickerModal.addEventListener("click", (e) => {
+      if (e.target === chatPickerModal) closeChatPicker();
+    });
 
-  confettiBtn && confettiBtn.addEventListener("click", burstConfetti);
+  // Opens the chat list with a given title; onPick(conv) fires when the
+  // person taps a conversation, then the picker closes itself.
+  function openChatPicker(title, onPick) {
+    if (!chatPickerModal || !chatPickerList) return;
+    chatPickerTitle.textContent = title;
+    const list = sortedConversations();
+    chatPickerList.innerHTML = "";
+    if (list.length === 0) {
+      chatPickerList.innerHTML = `<p class="new-chat-hint">Start a chat first from the Chats tab.</p>`;
+    } else {
+      list.forEach((conv) => {
+        const row = document.createElement("div");
+        row.className = "member-row";
+        row.innerHTML = `
+          ${conversationAvatarHtml(conv)}
+          <p class="member-row-name">${escapeHtml(conversationTitle(conv))}</p>
+        `;
+        row.addEventListener("click", () => {
+          closeChatPicker();
+          onPick(conv);
+        });
+        chatPickerList.appendChild(row);
+      });
+    }
+    chatPickerModal.classList.remove("hidden");
+  }
 
   // ---------- Features tab: Quick Poll (sends a formatted message to a chosen chat) ----------
 
@@ -2846,15 +2785,6 @@
   pollQuestionInput && pollQuestionInput.addEventListener("input", updatePollSendState);
   pollOptionInputs.forEach((input) => input && input.addEventListener("input", updatePollSendState));
 
-  function closePollPicker() {
-    closeOverlay(pollPickerModal);
-  }
-  pollPickerClose && pollPickerClose.addEventListener("click", closePollPicker);
-  pollPickerModal &&
-    pollPickerModal.addEventListener("click", (e) => {
-      if (e.target === pollPickerModal) closePollPicker();
-    });
-
   function buildPollText() {
     const numberEmoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"];
     const question = pollQuestionInput.value.trim();
@@ -2867,39 +2797,228 @@
     return lines.join("\n");
   }
 
-  function renderPollPickerList() {
-    if (!pollPickerList) return;
-    const list = sortedConversations();
-    pollPickerList.innerHTML = "";
-    if (list.length === 0) {
-      pollPickerList.innerHTML = `<p class="new-chat-hint">Start a chat first from the Chats tab.</p>`;
-      return;
-    }
-    list.forEach((conv) => {
-      const row = document.createElement("div");
-      row.className = "member-row";
-      row.innerHTML = `
-        ${conversationAvatarHtml(conv)}
-        <p class="member-row-name">${escapeHtml(conversationTitle(conv))}</p>
-      `;
-      row.addEventListener("click", () => {
-        if (!socket) return;
+  pollSendBtn &&
+    pollSendBtn.addEventListener("click", () => {
+      if (pollSendBtn.disabled || !socket) return;
+      openChatPicker("Send poll to…", (conv) => {
         socket.emit("message", { conversationId: conv.id, text: buildPollText() });
-        closePollPicker();
         pollQuestionInput.value = "";
         pollOptionInputs.forEach((input) => (input.value = ""));
         updatePollSendState();
         openConversationById(conv.id);
       });
-      pollPickerList.appendChild(row);
+    });
+
+  // ---------- Features tab: Photo Enhancer ----------
+  // Fully on-device: auto-levels (contrast/brightness stretch), a gentle
+  // saturation lift, and an unsharp-mask sharpen. No photo ever leaves the
+  // browser unless the person explicitly taps "Send to chat".
+
+  const ENHANCER_MAX_DIMENSION = 1280;
+  const ENHANCER_JPEG_QUALITY = 0.9;
+
+  let enhancerOriginalImageData = null;
+  let enhancerEnhancedImageData = null;
+  let enhancerShowingOriginal = false;
+
+  function clamp255(v) {
+    return v < 0 ? 0 : v > 255 ? 255 : v;
+  }
+
+  // Stretches the tonal range so the darkest pixels go toward black and the
+  // brightest go toward white — the single biggest fix for a flat/hazy photo.
+  function autoLevels(data) {
+    let min = 255,
+      max = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      if (lum < min) min = lum;
+      if (lum > max) max = lum;
+    }
+    if (max - min < 20) {
+      min = 0;
+      max = 255; // already high-contrast — don't over-stretch it
+    }
+    const range = Math.max(max - min, 1);
+    const satFactor = 1.15;
+    const brightnessLift = 5;
+    for (let i = 0; i < data.length; i += 4) {
+      let r = ((data[i] - min) * 255) / range;
+      let g = ((data[i + 1] - min) * 255) / range;
+      let b = ((data[i + 2] - min) * 255) / range;
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = gray + (r - gray) * satFactor + brightnessLift;
+      g = gray + (g - gray) * satFactor + brightnessLift;
+      b = gray + (b - gray) * satFactor + brightnessLift;
+      data[i] = clamp255(r);
+      data[i + 1] = clamp255(g);
+      data[i + 2] = clamp255(b);
+    }
+  }
+
+  // Cheap 3x3 box blur, used as the "unsharp" reference for sharpening.
+  function boxBlur(data, w, h) {
+    const out = new Uint8ClampedArray(data.length);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let rs = 0,
+          gs = 0,
+          bs = 0,
+          count = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= h) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            if (nx < 0 || nx >= w) continue;
+            const idx = (ny * w + nx) * 4;
+            rs += data[idx];
+            gs += data[idx + 1];
+            bs += data[idx + 2];
+            count++;
+          }
+        }
+        const idx = (y * w + x) * 4;
+        out[idx] = rs / count;
+        out[idx + 1] = gs / count;
+        out[idx + 2] = bs / count;
+        out[idx + 3] = data[idx + 3];
+      }
+    }
+    return out;
+  }
+
+  function unsharpMask(data, w, h, amount = 0.55) {
+    const blurred = boxBlur(data, w, h);
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = clamp255(data[i] + (data[i] - blurred[i]) * amount);
+      data[i + 1] = clamp255(data[i + 1] + (data[i + 1] - blurred[i + 1]) * amount);
+      data[i + 2] = clamp255(data[i + 2] + (data[i + 2] - blurred[i + 2]) * amount);
+    }
+  }
+
+  function resetEnhancerUI() {
+    if (enhancerPreviewWrap) enhancerPreviewWrap.classList.add("hidden");
+    if (enhancerActions) enhancerActions.classList.add("hidden");
+    if (enhancerStatus) enhancerStatus.classList.add("hidden");
+    enhancerOriginalImageData = null;
+    enhancerEnhancedImageData = null;
+    enhancerShowingOriginal = false;
+    if (enhancerCompareBtn) enhancerCompareBtn.textContent = "Hold to compare";
+  }
+
+  function loadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read file"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("Could not decode image"));
+        img.onload = () => resolve(img);
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
     });
   }
 
-  pollSendBtn &&
-    pollSendBtn.addEventListener("click", () => {
-      if (pollSendBtn.disabled) return;
-      renderPollPickerList();
-      pollPickerModal.classList.remove("hidden");
+  async function runEnhancer(file) {
+    if (!file || !file.type.startsWith("image/")) {
+      renderSystem("That doesn't look like an image.");
+      return;
+    }
+    if (file.size > MAX_SOURCE_FILE_BYTES) {
+      renderSystem("That photo is too large — try a smaller one.");
+      return;
+    }
+    resetEnhancerUI();
+    enhancerStatus.classList.remove("hidden");
+    await nextPaint();
+    try {
+      const img = await loadImageFromFile(file);
+      let { width, height } = img;
+      if (width > ENHANCER_MAX_DIMENSION || height > ENHANCER_MAX_DIMENSION) {
+        const scale = ENHANCER_MAX_DIMENSION / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      enhancerCanvas.width = width;
+      enhancerCanvas.height = height;
+      const ctx = enhancerCanvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const original = ctx.getImageData(0, 0, width, height);
+      enhancerOriginalImageData = new ImageData(new Uint8ClampedArray(original.data), width, height);
+
+      // Let the "Enhancing…" state actually paint before the (synchronous,
+      // can take a few hundred ms on a big photo) pixel work begins.
+      await nextPaint();
+      const enhanced = new ImageData(new Uint8ClampedArray(original.data), width, height);
+      autoLevels(enhanced.data);
+      unsharpMask(enhanced.data, width, height);
+      enhancerEnhancedImageData = enhanced;
+
+      ctx.putImageData(enhanced, 0, 0);
+      enhancerShowingOriginal = false;
+      enhancerStatus.classList.add("hidden");
+      enhancerPreviewWrap.classList.remove("hidden");
+      enhancerActions.classList.remove("hidden");
+    } catch (err) {
+      enhancerStatus.classList.add("hidden");
+      renderSystem("Couldn't enhance that photo — try a different one.");
+    }
+  }
+
+  enhancerChooseBtn && enhancerChooseBtn.addEventListener("click", () => enhancerFileInput.click());
+  enhancerChooseAgainBtn && enhancerChooseAgainBtn.addEventListener("click", () => enhancerFileInput.click());
+  enhancerFileInput &&
+    enhancerFileInput.addEventListener("change", () => {
+      const file = enhancerFileInput.files && enhancerFileInput.files[0];
+      enhancerFileInput.value = "";
+      if (file) runEnhancer(file);
+    });
+
+  function setEnhancerCompareView(showOriginal) {
+    if (!enhancerOriginalImageData || !enhancerEnhancedImageData) return;
+    enhancerShowingOriginal = showOriginal;
+    const ctx = enhancerCanvas.getContext("2d");
+    ctx.putImageData(showOriginal ? enhancerOriginalImageData : enhancerEnhancedImageData, 0, 0);
+    enhancerCompareBtn.textContent = showOriginal ? "Before" : "Hold to compare";
+  }
+
+  if (enhancerCompareBtn) {
+    // Press-and-hold shows the original; releasing snaps back to enhanced.
+    const showOrig = () => setEnhancerCompareView(true);
+    const showEnhanced = () => setEnhancerCompareView(false);
+    enhancerCompareBtn.addEventListener("mousedown", showOrig);
+    enhancerCompareBtn.addEventListener("touchstart", showOrig, { passive: true });
+    ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((evt) =>
+      enhancerCompareBtn.addEventListener(evt, showEnhanced)
+    );
+  }
+
+  function enhancedCanvasToDataUrl() {
+    return enhancerCanvas.toDataURL("image/jpeg", ENHANCER_JPEG_QUALITY);
+  }
+
+  enhancerDownloadBtn &&
+    enhancerDownloadBtn.addEventListener("click", () => {
+      if (!enhancerEnhancedImageData) return;
+      const a = document.createElement("a");
+      a.href = enhancedCanvasToDataUrl();
+      a.download = "enhanced-photo.jpg";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+
+  enhancerSendBtn &&
+    enhancerSendBtn.addEventListener("click", () => {
+      if (!enhancerEnhancedImageData || !socket) return;
+      const dataUrl = enhancedCanvasToDataUrl();
+      openChatPicker("Send enhanced photo to…", (conv) => {
+        socket.emit("message", { conversationId: conv.id, image: dataUrl });
+        openConversationById(conv.id);
+      });
     });
 
   // ---------- Features tab: personal to-do list (stored on this device) ----------
