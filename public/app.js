@@ -2160,18 +2160,32 @@
   }
 
   async function setupPush(name) {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    function report(step, ok, error) {
+      fetch("/api/push-debug", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step, ok, error: error ? String(error && error.message || error) : undefined, name }),
+      }).catch(() => {});
+    }
+
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      report("browser-support", false, "serviceWorker or PushManager not available");
+      return;
+    }
 
     try {
       const reg = await navigator.serviceWorker.register("/sw.js");
       await navigator.serviceWorker.ready;
+      report("service-worker-ready", true);
 
       // Ask permission on a user gesture (join button click covers this)
       const permission = await Notification.requestPermission();
+      report("notification-permission", permission === "granted", permission);
       if (permission !== "granted") return;
 
       const keyRes = await fetch("/api/vapid-public-key");
       const { key } = await keyRes.json();
+      report("fetched-vapid-key", !!key, key ? undefined : "empty key response");
 
       let subscription = await reg.pushManager.getSubscription();
       if (!subscription) {
@@ -2180,14 +2194,17 @@
           applicationServerKey: urlBase64ToUint8Array(key),
         });
       }
+      report("push-subscription-created", !!subscription);
 
-      await fetch("/api/subscribe", {
+      const subRes = await fetch("/api/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, subscription }),
       });
+      report("posted-subscription-to-server", subRes.ok, subRes.ok ? undefined : `HTTP ${subRes.status}`);
     } catch (err) {
       console.error("Push setup failed:", err);
+      report("push-setup-exception", false, err);
     }
   }
 
