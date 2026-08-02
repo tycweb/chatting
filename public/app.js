@@ -2937,7 +2937,6 @@
   // blocked CDN, ad blocker, whatever) window.Upscaler just won't exist and
   // we quietly fall back to the plain auto-levels/sharpen enhancer below —
   // the feature should never hard-fail just because the AI model didn't load.
-  const AI_UPSCALE_MAX_INPUT_DIMENSION = 640; // keep inference fast on phones
   let aiUpscaler = null;
   let aiUpscalerFailed = false;
 
@@ -2963,7 +2962,7 @@
     const upscaler = getAiUpscaler();
     if (!upscaler) return null;
     try {
-      const src = await upscaler.upscale(img, { patchSize: 64, padding: 6 });
+      const src = await upscaler.upscale(img, { patchSize: 128, padding: 8 });
       return await loadImageFromSrc(src);
     } catch (e) {
       return null;
@@ -2998,18 +2997,15 @@
       originalCanvas.height = origH;
       originalCanvas.getContext("2d").drawImage(img, 0, 0, origW, origH);
 
-      // Feed the AI model a downscaled copy so inference stays fast on a
-      // phone — the model itself is adding detail back in, so we don't need
-      // a huge input for a good-looking result.
-      let aiInput = img;
-      if (Math.max(img.width, img.height) > AI_UPSCALE_MAX_INPUT_DIMENSION) {
-        const scale = AI_UPSCALE_MAX_INPUT_DIMENSION / Math.max(img.width, img.height);
-        const c = document.createElement("canvas");
-        c.width = Math.round(img.width * scale);
-        c.height = Math.round(img.height * scale);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        aiInput = await loadImageFromSrc(c.toDataURL());
-      }
+      // Feed the AI model the same resolution used for the original preview
+      // (already capped at ENHANCER_MAX_DIMENSION). We used to shrink this
+      // further to keep inference fast, but that threw away real detail
+      // before the model ever saw it — no amount of AI upscaling can recover
+      // detail that's already gone, so the result came out blurrier than the
+      // source photo. patchSize/padding below already let the model process
+      // a full-size image in tiles without blocking the UI, so there's no
+      // need for an extra pre-shrink.
+      const aiInput = await loadImageFromSrc(originalCanvas.toDataURL());
 
       await nextPaint();
       const aiResult = await aiUpscaleImage(aiInput);
