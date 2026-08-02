@@ -341,14 +341,14 @@
   // sheen as the brand mark instead of a flat block of color, so initials,
   // group chats, and the logo all read as one consistent icon style.
   const AVATAR_GRADIENTS = [
-    "linear-gradient(135deg, #7dd3fc, #38bdf8)",
-    "linear-gradient(135deg, #a78bfa, #8b5cf6)",
-    "linear-gradient(135deg, #f472b6, #ec4899)",
-    "linear-gradient(135deg, #fb923c, #f97316)",
-    "linear-gradient(135deg, #34d399, #10b981)",
-    "linear-gradient(135deg, #facc15, #eab308)",
-    "linear-gradient(135deg, #60a5fa, #3b82f6)",
-    "linear-gradient(135deg, #f87171, #ef4444)",
+    "linear-gradient(135deg, #7dd3fc, #0369a1)",
+    "linear-gradient(135deg, #c4b5fd, #6d28d9)",
+    "linear-gradient(135deg, #fbcfe8, #be185d)",
+    "linear-gradient(135deg, #fed7aa, #c2410c)",
+    "linear-gradient(135deg, #6ee7b7, #047857)",
+    "linear-gradient(135deg, #fde68a, #a16207)",
+    "linear-gradient(135deg, #93c5fd, #1d4ed8)",
+    "linear-gradient(135deg, #fca5a5, #b91c1c)",
   ];
   function nameHash(name) {
     let hash = 0;

@@ -1555,6 +1555,14 @@ img.emoji {
   overflow: hidden;
 }
 
+.conv-avatar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 55%);
+  pointer-events: none;
+}
+
 .conv-avatar img,
 .msg-avatar img,
 .read-receipt-avatar img,
