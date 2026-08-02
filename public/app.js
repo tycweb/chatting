@@ -175,6 +175,32 @@
   let audioCtx = null;
   let lastTap = { id: null, time: 0 };
 
+  // ---------- Emoji re-skin (Telegram/Discord-style flat art via Twemoji) ----------
+  // The rest of the app just writes normal unicode emoji into innerHTML like
+  // before — this watches the whole page and swaps them for consistent image
+  // emoji the instant they land in the DOM, on every screen and every phone.
+  function parseEmoji(node) {
+    if (!window.twemoji || !node) return;
+    try {
+      window.twemoji.parse(node, { folder: "svg", ext: ".svg" });
+    } catch (err) {
+      // Twemoji not loaded yet or a stray node — safe to ignore, native emoji still shows.
+    }
+  }
+
+  if (window.MutationObserver) {
+    const emojiObserver = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        m.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) parseEmoji(node);
+          else if (node.nodeType === 3 && node.parentElement) parseEmoji(node.parentElement);
+        });
+      }
+    });
+    emojiObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+  parseEmoji(document.body); // catch whatever's already on the page (join screen, header icons, etc.)
+
   let myName = "";
   let socket = null;
   let openPickerId = null;

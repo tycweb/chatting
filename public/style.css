@@ -50,6 +50,17 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* Twemoji swaps every emoji character for one of these <img> tags so emoji
+   look the same (Telegram/Discord-style flat art) on every phone instead of
+   each device's own stock emoji font. */
+img.emoji {
+  height: 1.15em;
+  width: 1.15em;
+  margin: 0 0.05em 0 0.1em;
+  vertical-align: -0.2em;
+  display: inline-block;
+}
+
 .screen {
   height: 100dvh;
   height: var(--app-height, 100dvh);
