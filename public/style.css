@@ -2283,7 +2283,9 @@ img.emoji {
   background: rgba(255, 255, 255, 0.05);
 }
 
-.feature-card-icon { font-size: 20px; flex-shrink: 0; line-height: 1; }
+.feature-card-icon { font-size: 20px; flex-shrink: 0; line-height: 1; display: inline-flex; align-items: center; }
+.menu-row-label { display: inline-flex; align-items: center; gap: 8px; }
+.menu-row-label svg { flex-shrink: 0; }
 .feature-card-label { flex: 1; }
 
 .feature-card-chevron {
