@@ -29,45 +29,39 @@
       <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:30%"></div>
     </div>
   </div>
-  <div class="skeleton-list" aria-hidden="true">
-    <div class="skeleton-row">
-      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
-      <div class="skeleton-row-lines">
-        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:55%"></div>
-        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:75%"></div>
-      </div>
-    </div>
-    <div class="skeleton-row">
-      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
-      <div class="skeleton-row-lines">
-        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:40%"></div>
-        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:60%"></div>
-      </div>
-    </div>
-    <div class="skeleton-row">
-      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
-      <div class="skeleton-row-lines">
-        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:65%"></div>
-        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:45%"></div>
-      </div>
-    </div>
-    <div class="skeleton-row">
-      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
-      <div class="skeleton-row-lines">
-        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:50%"></div>
-        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:70%"></div>
-      </div>
-    </div>
-    <div class="skeleton-row">
-      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
-      <div class="skeleton-row-lines">
-        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:35%"></div>
-        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:55%"></div>
-      </div>
-    </div>
-  </div>
-  <p id="loading-text">Connecting to GroupChat...</p>
+  <div id="skeleton-list" class="skeleton-list" aria-hidden="true"></div>
+  <p id="loading-text" class="sr-only">Connecting to GroupChat...</p>
 </div>
+<script>
+  // Fill the list with as many skeleton rows as the screen can fit (instead
+  // of a fixed handful that leaves empty black space below on taller
+  // screens). Runs synchronously before first paint since it's inline,
+  // right where the list needs to be filled.
+  (function () {
+    var list = document.getElementById("skeleton-list");
+    var widthPairs = [
+      [55, 75], [40, 60], [65, 45], [50, 70], [35, 55],
+      [60, 40], [45, 65], [70, 50], [38, 58], [52, 72],
+    ];
+    var rowHeight = 72; // approx px per row, incl. padding/gap
+    var topbarHeight = 96;
+    var target = Math.max(window.innerHeight - topbarHeight, rowHeight * 6);
+    var count = Math.ceil(target / rowHeight) + 1;
+    var html = "";
+    for (var i = 0; i < count; i++) {
+      var pair = widthPairs[i % widthPairs.length];
+      html +=
+        '<div class="skeleton-row">' +
+          '<div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>' +
+          '<div class="skeleton-row-lines">' +
+            '<div class="skeleton-block skeleton-shimmer skeleton-line" style="width:' + pair[0] + '%"></div>' +
+            '<div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:' + pair[1] + '%"></div>' +
+          '</div>' +
+        '</div>';
+    }
+    list.innerHTML = html;
+  })();
+</script>
   <!-- Join screen -->
   <div id="join-screen" class="screen join-screen">
     <div class="join-card">
