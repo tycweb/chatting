@@ -1567,17 +1567,20 @@ img.emoji {
 }
 
 .conv-avatar.room-avatar {
-  background: var(--black-3);
+  background: linear-gradient(135deg, var(--black-3), #1c1c1c);
   color: var(--accent-1);
   border: 1px solid var(--line);
   font-size: 16px;
 }
 
 .conv-avatar.group-avatar {
-  background: var(--black-3);
+  background: linear-gradient(135deg, var(--black-3), #1c1c1c);
   color: var(--accent-2);
   border: 1px solid var(--line);
   font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .conv-body {

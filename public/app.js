@@ -336,10 +336,30 @@
   }
 
   const NAME_COLORS = ["#7dd3fc", "#a78bfa", "#f472b6", "#fb923c", "#34d399", "#facc15", "#60a5fa", "#f87171"];
-  function colorForName(name) {
+  // Paired gradients (same order/hue family as NAME_COLORS above) used for
+  // avatar circle backgrounds — gives every avatar the same soft diagonal
+  // sheen as the brand mark instead of a flat block of color, so initials,
+  // group chats, and the logo all read as one consistent icon style.
+  const AVATAR_GRADIENTS = [
+    "linear-gradient(135deg, #7dd3fc, #38bdf8)",
+    "linear-gradient(135deg, #a78bfa, #8b5cf6)",
+    "linear-gradient(135deg, #f472b6, #ec4899)",
+    "linear-gradient(135deg, #fb923c, #f97316)",
+    "linear-gradient(135deg, #34d399, #10b981)",
+    "linear-gradient(135deg, #facc15, #eab308)",
+    "linear-gradient(135deg, #60a5fa, #3b82f6)",
+    "linear-gradient(135deg, #f87171, #ef4444)",
+  ];
+  function nameHash(name) {
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-    return NAME_COLORS[hash % NAME_COLORS.length];
+    return hash;
+  }
+  function colorForName(name) {
+    return NAME_COLORS[nameHash(name) % NAME_COLORS.length];
+  }
+  function avatarBgForName(name) {
+    return AVATAR_GRADIENTS[nameHash(name) % AVATAR_GRADIENTS.length];
   }
 
   // Custom profile pictures. name -> avatar URL. Populated from the join
@@ -393,11 +413,11 @@
     if (conv.type === "group") {
       const anyOnline = otherMembers(conv).some((m) => onlineNames.includes(m));
       const dot = anyOnline ? `<span class="conv-online-dot"></span>` : "";
-      return `<div class="conv-avatar-wrap"><div class="conv-avatar group-avatar">👥</div>${dot}</div>`;
+      return `<div class="conv-avatar-wrap"><div class="conv-avatar group-avatar"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>${dot}</div>`;
     }
     const other = otherMembers(conv)[0] || "?";
     const dot = onlineNames.includes(other) ? `<span class="conv-online-dot"></span>` : "";
-    return `<div class="conv-avatar-wrap"><div class="conv-avatar" style="background:${colorForName(other)}">${avatarInnerHtml(other)}</div>${dot}</div>`;
+    return `<div class="conv-avatar-wrap"><div class="conv-avatar" style="background:${avatarBgForName(other)}">${avatarInnerHtml(other)}</div>${dot}</div>`;
   }
 
   function conversationPreviewText(conv) {
@@ -547,7 +567,7 @@
     if (conv.type === "room") {
       chatTitleAvatar.textContent = "#";
     } else if (conv.type === "group") {
-      chatTitleAvatar.textContent = "👥";
+      chatTitleAvatar.innerHTML = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
     } else {
       const other = otherMembers(conv)[0] || conversationTitle(conv);
       chatTitleAvatar.innerHTML = avatarInnerHtml(other);
@@ -689,7 +709,7 @@
       const isOnline = onlineNames.includes(n);
       row.innerHTML = `
         <div class="member-row-avatar-wrap">
-          <div class="conv-avatar" style="background:${colorForName(n)}">${avatarInnerHtml(n)}</div>
+          <div class="conv-avatar" style="background:${avatarBgForName(n)}">${avatarInnerHtml(n)}</div>
           <span class="member-status-dot ${isOnline ? "online" : "offline"}"></span>
         </div>
         <span class="member-row-name">${escapeHtml(n)}</span>
@@ -839,7 +859,7 @@
       const isMe = n === myName;
       row.innerHTML = `
         <div class="member-row-avatar-wrap">
-          <div class="conv-avatar" style="background:${colorForName(n)}">${avatarInnerHtml(n)}</div>
+          <div class="conv-avatar" style="background:${avatarBgForName(n)}">${avatarInnerHtml(n)}</div>
           <span class="member-status-dot ${isOnline ? "online" : "offline"}"></span>
         </div>
         <span class="member-row-name">${escapeHtml(n)}${isMe ? " (you)" : ""}</span>
@@ -871,11 +891,11 @@
   function refreshMyAvatarButton() {
     if (!myName) return;
     if (myAvatarInner) {
-      myAvatarInner.style.background = colorForName(myName);
+      myAvatarInner.style.background = avatarBgForName(myName);
       myAvatarInner.innerHTML = avatarInnerHtml(myName);
     }
     if (menuAvatarInner) {
-      menuAvatarInner.style.background = colorForName(myName);
+      menuAvatarInner.style.background = avatarBgForName(myName);
       menuAvatarInner.innerHTML = avatarInnerHtml(myName);
     }
     if (menuProfileName) menuProfileName.textContent = myName;
@@ -1072,7 +1092,7 @@
   }
 
   function avatarHtml(name) {
-    return `<div class="msg-avatar" style="background:${colorForName(name)}">${avatarInnerHtml(name)}</div>`;
+    return `<div class="msg-avatar" style="background:${avatarBgForName(name)}">${avatarInnerHtml(name)}</div>`;
   }
 
   function replyQuoteHtml(replyTo) {
@@ -1971,11 +1991,11 @@
       if (conv.type === "group" || conv.type === "room") {
         marker.innerHTML = names
           .slice(0, 3)
-          .map((n) => `<span class="read-receipt-avatar" style="background:${colorForName(n)}">${avatarInnerHtml(n)}</span>`)
+          .map((n) => `<span class="read-receipt-avatar" style="background:${avatarBgForName(n)}">${avatarInnerHtml(n)}</span>`)
           .join("");
         if (names.length > 3) marker.innerHTML += `<span class="read-receipt-more">+${names.length - 3}</span>`;
       } else {
-        marker.innerHTML = `<span class="read-receipt-avatar" style="background:${colorForName(names[0])}">${avatarInnerHtml(names[0])}</span>`;
+        marker.innerHTML = `<span class="read-receipt-avatar" style="background:${avatarBgForName(names[0])}">${avatarInnerHtml(names[0])}</span>`;
       }
       // Placed right after the wrap, in normal flow — never overlaps
       // the reaction row (which is absolutely positioned) or the next
