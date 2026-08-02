@@ -1,11 +1,11 @@
 {
-  "name": "Tycept Chat",
-  "short_name": "Tycept",
+  "name": "GroupChat",
+  "short_name": "chatting",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#000000",
-  "theme_color": "#000000",
+  "theme_color": "#2c2c2c",
   "orientation": "portrait",
   "icons": [
     {
@@ -26,5 +26,9 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "display_override": [
+    "minimal-ui",
+    "window-controls-overlay"
   ]
 }
