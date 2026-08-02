@@ -654,6 +654,104 @@
 
   backBtn && backBtn.addEventListener("click", showConversationsScreen);
 
+  // ---------- In-app pull-to-refresh ----------
+  // Mimics native pull-to-refresh but never reloads the page: dragging down
+  // from the top of the message list re-fetches this conversation's history
+  // over the existing socket connection. Keep the native "Pull to Refresh"
+  // toggle OFF in the app builder — that one reloads the whole WebView.
+
+  const pullRefreshIndicator = document.getElementById("pull-refresh-indicator");
+  const PULL_THRESHOLD = 64; // px of actual finger travel needed to trigger
+  const PULL_MAX = 90; // visual cap on how far the indicator can stretch
+  const PULL_RESISTANCE = 0.5; // drag feels slightly "heavy", like native UIs
+
+  let pullStartY = 0;
+  let pullTracking = false;
+  let pullDistance = 0;
+  let pullRefreshing = false;
+
+  function setPullHeight(px) {
+    if (pullRefreshIndicator) pullRefreshIndicator.style.height = `${px}px`;
+  }
+
+  function finishPullRefresh() {
+    pullRefreshing = false;
+    if (pullRefreshIndicator) {
+      pullRefreshIndicator.classList.remove("dragging");
+      setPullHeight(0);
+    }
+  }
+
+  function performPullRefresh() {
+    if (!currentConversationId || !socket || pullRefreshing) {
+      finishPullRefresh();
+      return;
+    }
+    pullRefreshing = true;
+    const refreshingId = currentConversationId;
+    socket.emit("open-conversation", { id: refreshingId }, (res) => {
+      // Bail quietly if the user switched conversations while this was in flight.
+      if (currentConversationId === refreshingId && res && !res.error) {
+        messagesById.clear();
+        lastRenderedId = null;
+        messageList.innerHTML = "";
+        currentReads = new Map(Object.entries(res.reads || {}));
+        res.history.forEach(renderMessage);
+        renderReadReceipts();
+        scrollToBottom();
+      }
+      setTimeout(finishPullRefresh, 250);
+    });
+  }
+
+  if (messageList && pullRefreshIndicator) {
+    messageList.addEventListener(
+      "touchstart",
+      (e) => {
+        if (pullRefreshing || e.touches.length !== 1) return;
+        if (messageList.scrollTop <= 0) {
+          pullTracking = true;
+          pullStartY = e.touches[0].clientY;
+          pullDistance = 0;
+        }
+      },
+      { passive: true }
+    );
+
+    messageList.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!pullTracking || pullRefreshing) return;
+        const deltaY = e.touches[0].clientY - pullStartY;
+        if (deltaY <= 0 || messageList.scrollTop > 0) {
+          pullTracking = false;
+          pullRefreshIndicator.classList.remove("dragging");
+          setPullHeight(0);
+          return;
+        }
+        pullRefreshIndicator.classList.add("dragging");
+        pullDistance = Math.min(PULL_MAX, deltaY * PULL_RESISTANCE);
+        setPullHeight(pullDistance);
+      },
+      { passive: true }
+    );
+
+    const endPull = () => {
+      if (!pullTracking) return;
+      pullTracking = false;
+      pullRefreshIndicator.classList.remove("dragging");
+      if (pullDistance >= PULL_THRESHOLD * PULL_RESISTANCE) {
+        setPullHeight(52);
+        performPullRefresh();
+      } else {
+        setPullHeight(0);
+      }
+    };
+
+    messageList.addEventListener("touchend", endPull);
+    messageList.addEventListener("touchcancel", endPull);
+  }
+
   // ---------- New chat modal ----------
 
   function closeNewChatModal() {

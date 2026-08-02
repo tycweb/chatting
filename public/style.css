@@ -330,6 +330,27 @@ img.emoji {
 
 .message-list::-webkit-scrollbar { display: none; }
 
+.pull-refresh-indicator {
+  height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: height 0.25s ease;
+}
+
+.pull-refresh-indicator.dragging { transition: none; }
+
+.pull-refresh-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--accent-1);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
 /* ---------- Skeleton loaders ---------- */
 
 @keyframes skeletonShimmer {
