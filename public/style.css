@@ -466,10 +466,17 @@ img.emoji {
   font-size: 14.5px;
   line-height: 1.42;
   word-break: break-word;
-  white-space: pre-wrap;
   cursor: pointer;
   user-select: none;
   transition: border-radius 0.15s ease;
+}
+
+/* pre-wrap belongs on the text itself, not the bubble wrapper - putting it
+   on .msg-bubble made the template's own indentation/newlines (between
+   avatar/name/meta markup) render as real blank lines, inflating every
+   bubble regardless of message length. */
+.msg-text {
+  white-space: pre-wrap;
 }
 
 .msg-row.me .msg-bubble {

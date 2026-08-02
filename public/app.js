@@ -1131,9 +1131,9 @@
     } else if (msg.image) {
       bubbleInner = `<img class="msg-image" src="${msg.image}" alt="Shared photo" data-lightbox="${msg.id}" />`;
     } else if (jumbo) {
-      bubbleInner = escapeHtml(msg.text);
+      bubbleInner = `<div class="msg-text">${escapeHtml(msg.text)}</div>`;
     } else {
-      bubbleInner = linkifyText(msg.text);
+      bubbleInner = `<div class="msg-text">${linkifyText(msg.text)}</div>`;
     }
 
     const bubbleClasses = ["msg-bubble"];
