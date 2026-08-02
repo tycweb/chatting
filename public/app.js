@@ -1257,17 +1257,27 @@
     // (now wider with the "+" button) never renders off-screen — it used to
     // be positioned absolute inside the bubble itself, which pushed it past
     // the edge of the phone screen on "me" messages.
+    //
+    // Important: use offsetWidth/offsetHeight here, not getBoundingClientRect.
+    // The picker's entrance animation starts from transform: scale(0.7) with
+    // "backwards" fill-mode, so measuring it with getBoundingClientRect right
+    // after insertion (before the animation actually starts) reports that
+    // shrunk, transformed box — about 30% too narrow. Positioning off that
+    // undersized number then let the real (scale 1) picker overhang past the
+    // right edge of the screen, hiding the "+" button. offsetWidth/Height
+    // reflect the true layout size and ignore the transform entirely.
     const wrap = anchorEl.closest(".msg-bubble-wrap") || anchorEl;
     const wrapRect = wrap.getBoundingClientRect();
-    const pickerRect = picker.getBoundingClientRect();
+    const pickerWidth = picker.offsetWidth;
+    const pickerHeight = picker.offsetHeight;
     const margin = 8;
     const isMe = !!anchorEl.closest(".msg-row.me");
 
-    let left = isMe ? wrapRect.right - pickerRect.width : wrapRect.left;
-    left = Math.min(Math.max(left, margin), window.innerWidth - pickerRect.width - margin);
+    let left = isMe ? wrapRect.right - pickerWidth : wrapRect.left;
+    left = Math.min(Math.max(left, margin), window.innerWidth - pickerWidth - margin);
 
-    let top = wrapRect.top - pickerRect.height - 10;
-    if (top < margin) top = Math.min(wrapRect.bottom + 10, window.innerHeight - pickerRect.height - margin);
+    let top = wrapRect.top - pickerHeight - 10;
+    if (top < margin) top = Math.min(wrapRect.bottom + 10, window.innerHeight - pickerHeight - margin);
 
     picker.style.left = `${left}px`;
     picker.style.top = `${top}px`;
