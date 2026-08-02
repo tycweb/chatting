@@ -342,13 +342,13 @@
   // group chats, and the logo all read as one consistent icon style.
   const AVATAR_GRADIENTS = [
     "linear-gradient(135deg, #7dd3fc, #0369a1)",
-    "linear-gradient(135deg, #c4b5fd, #6d28d9)",
-    "linear-gradient(135deg, #fbcfe8, #be185d)",
-    "linear-gradient(135deg, #fed7aa, #c2410c)",
-    "linear-gradient(135deg, #6ee7b7, #047857)",
-    "linear-gradient(135deg, #fde68a, #a16207)",
-    "linear-gradient(135deg, #93c5fd, #1d4ed8)",
-    "linear-gradient(135deg, #fca5a5, #b91c1c)",
+    "linear-gradient(135deg, #a78bfa, #5b21b6)",
+    "linear-gradient(135deg, #93c5fd, #6d28d9)",
+    "linear-gradient(135deg, #c4b5fd, #7e22ce)",
+    "linear-gradient(135deg, #67e8f9, #0e7490)",
+    "linear-gradient(135deg, #bae6fd, #1e40af)",
+    "linear-gradient(135deg, #ddd6fe, #4338ca)",
+    "linear-gradient(135deg, #7dd3fc, #4c1d95)",
   ];
   function nameHash(name) {
     let hash = 0;
