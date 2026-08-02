@@ -395,6 +395,7 @@ app.get("/api/vapid-public-key", (req, res) => {
 app.post("/api/subscribe", (req, res) => {
   const { name, subscription } = req.body || {};
   if (!name || !subscription || !subscription.endpoint) {
+    console.log("[push] subscribe rejected — missing name or subscription", { name, hasSub: !!subscription });
     return res.status(400).json({ error: "Missing name or subscription" });
   }
   const list = pushSubscriptions.get(name) || [];
@@ -402,6 +403,7 @@ app.post("/api/subscribe", (req, res) => {
   if (!exists) list.push(subscription);
   pushSubscriptions.set(name, list);
   savePushSubsToRedis();
+  console.log(`[push] subscribed: ${name} now has ${list.length} device(s) registered`);
   res.status(201).json({});
 });
 
@@ -414,9 +416,15 @@ async function notifyNewMessage(msg, conv) {
   const recipients =
     conv.type === "room" ? Array.from(pushSubscriptions.keys()) : conv.members;
 
+  console.log(`[push] new message from ${msg.name} — candidate recipients: ${recipients.join(", ") || "(none)"}`);
+
   for (const name of recipients) {
     if (name === msg.name) continue; // don't notify the sender
     const subs = pushSubscriptions.get(name) || [];
+    if (subs.length === 0) {
+      console.log(`[push] skipping ${name} — no registered device/subscription on file`);
+      continue;
+    }
     for (const sub of subs) {
       try {
         // urgency: "high" + a short TTL tells the browser's push service
@@ -424,6 +432,7 @@ async function notifyNewMessage(msg, conv) {
         // without it, some Android devices in Doze mode can sit on a
         // "normal" priority push for quite a while before delivering it.
         await webpush.sendNotification(sub, payload, { urgency: "high", TTL: 60 });
+        console.log(`[push] sent OK to ${name}`);
       } catch (err) {
         if (err.statusCode === 410 || err.statusCode === 404) {
           const remaining = (pushSubscriptions.get(name) || []).filter(
@@ -431,8 +440,9 @@ async function notifyNewMessage(msg, conv) {
           );
           pushSubscriptions.set(name, remaining);
           savePushSubsToRedis();
+          console.log(`[push] ${name}'s subscription is dead (${err.statusCode}) — removed it`);
         } else {
-          console.error("Push failed:", err.message);
+          console.error(`[push] FAILED sending to ${name}:`, err.statusCode, err.message);
         }
       }
     }
