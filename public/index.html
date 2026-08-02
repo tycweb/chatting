@@ -11,10 +11,10 @@
   html, body { margin:0; height:100%; background:#000; }
   #loading-screen {
     position: fixed; inset: 0; background:#000; display:flex;
-    flex-direction:column; align-items:center; justify-content:center;
-    z-index:9999; color:#fff; gap:16px;
+    flex-direction:column; align-items:stretch; justify-content:flex-start;
+    z-index:9999; color:#fff; gap:0;
   }
-  #loading-screen img { border-radius:20px; }
+  .skeleton-block { background:#1c1c1e; border-radius:8px; }
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -22,10 +22,51 @@
 </head>
 <body>
 <div id="loading-screen">
-  <img src="/icon-192.png" alt="Tycept" width="80" height="80">
+  <div class="skeleton-topbar">
+    <div class="skeleton-block skeleton-shimmer skeleton-avatar-lg"></div>
+    <div class="skeleton-topbar-lines">
+      <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:46%"></div>
+      <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:30%"></div>
+    </div>
+  </div>
+  <div class="skeleton-list" aria-hidden="true">
+    <div class="skeleton-row">
+      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
+      <div class="skeleton-row-lines">
+        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:55%"></div>
+        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:75%"></div>
+      </div>
+    </div>
+    <div class="skeleton-row">
+      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
+      <div class="skeleton-row-lines">
+        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:40%"></div>
+        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:60%"></div>
+      </div>
+    </div>
+    <div class="skeleton-row">
+      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
+      <div class="skeleton-row-lines">
+        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:65%"></div>
+        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:45%"></div>
+      </div>
+    </div>
+    <div class="skeleton-row">
+      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
+      <div class="skeleton-row-lines">
+        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:50%"></div>
+        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:70%"></div>
+      </div>
+    </div>
+    <div class="skeleton-row">
+      <div class="skeleton-block skeleton-shimmer skeleton-avatar"></div>
+      <div class="skeleton-row-lines">
+        <div class="skeleton-block skeleton-shimmer skeleton-line" style="width:35%"></div>
+        <div class="skeleton-block skeleton-shimmer skeleton-line skeleton-line-sm" style="width:55%"></div>
+      </div>
+    </div>
+  </div>
   <p id="loading-text">Connecting to GroupChat...</p>
-  <div class="spinner"></div>
-  <div class="loading-dots"><span></span><span></span><span></span></div>
 </div>
   <!-- Join screen -->
   <div id="join-screen" class="screen join-screen">
@@ -428,19 +469,44 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@twemoji/api@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
-  <!-- UpscalerJS: free, on-device AI photo upscaling/enhancement (TensorFlow.js).
-       No API key, no server call, no cost — runs entirely in the browser.
-       If this fails to load (offline, blocked CDN, etc.) the Photo Enhancer
-       falls back to the plain auto-levels/sharpen version automatically. -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-medium@latest/dist/umd/2x.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/upscaler@latest/dist/browser/umd/upscaler.min.js"></script>
-  <!-- BodyPix: free, on-device person segmentation (TensorFlow.js) for the
-       Remove Background tool. No API key, no upload — runs entirely locally.
-       If this fails to load, Remove Background shows a friendly error instead
-       of hard-failing. -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@latest/dist/body-pix.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@twemoji/api@latest/dist/twemoji.min.js" crossorigin="anonymous" defer></script>
   <script src="app.js"></script>
+  <script>
+    // UpscalerJS + BodyPix (TensorFlow.js) are several MB combined and are only
+    // needed if/when someone opens Photo Enhancer or Remove Background. Loading
+    // them as blocking <head> scripts was adding real seconds to first paint on
+    // every single connect. Instead we fetch them lazily, in the background,
+    // well after the loading screen/chat UI is already usable, and cache the
+    // promise so the feature buttons just await it instead of re-fetching.
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    window.__loadEnhancerLibs = function () {
+      if (!window.__enhancerLibsPromise) {
+        window.__enhancerLibsPromise = loadScript("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js")
+          .then(() => Promise.all([
+            loadScript("https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-medium@latest/dist/umd/2x.min.js"),
+            loadScript("https://cdn.jsdelivr.net/npm/upscaler@latest/dist/browser/umd/upscaler.min.js"),
+            loadScript("https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@latest/dist/body-pix.min.js"),
+          ]))
+          .catch((err) => console.error("Enhancer libs failed to load:", err));
+      }
+      return window.__enhancerLibsPromise;
+    };
+    // Kick off the fetch in the background once the page is idle, so it's
+    // usually ready by the time someone taps into Features anyway — but it
+    // no longer blocks the initial connect/render.
+    if ("requestIdleCallback" in window) {
+      requestIdleCallback(() => window.__loadEnhancerLibs());
+    } else {
+      setTimeout(() => window.__loadEnhancerLibs(), 3000);
+    }
+  </script>
 </body>
 </html>

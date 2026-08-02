@@ -1017,69 +1017,108 @@ img.emoji {
   background: #000000;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: flex-start;
   z-index: 9999;
   color: #ffffff;
-  gap: 16px;
+  overflow: hidden;
+  transition: opacity 0.25s ease;
+}
+
+/* Fake "topbar" — mirrors the real chats header (avatar + title lines)
+   so the skeleton reads as this app's UI, not a generic placeholder. */
+.skeleton-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 18px) 18px 16px;
+}
+
+.skeleton-avatar-lg {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.skeleton-topbar-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+/* Fake conversation list — rows of avatar + two lines, same shape as
+   real chat rows, so it feels like content is already there and loading in. */
+.skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 18px 0;
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.skeleton-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.skeleton-row-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.skeleton-line {
+  height: 12px;
+}
+
+.skeleton-line-sm {
+  height: 9px;
+}
+
+/* Shimmer sweep across every skeleton block */
+.skeleton-shimmer {
+  position: relative;
   overflow: hidden;
 }
 
-/* Soft radial pulse behind the icon so the screen itself feels "alive"
-   while we're waiting on the socket, instead of sitting static. */
-#loading-screen::before {
+.skeleton-shimmer::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.10), transparent 60%);
-  animation: loadingPulseBg 2.2s ease-in-out infinite;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeletonShimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* Brief "connected" beat: shimmer stops and everything fades so the
+   transition into the real UI reads as a clean handoff, not a hard cut. */
+#loading-screen.connected {
+  opacity: 0;
   pointer-events: none;
 }
 
-@keyframes loadingPulseBg {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
-}
-
-#loading-screen img {
-  position: relative;
-  animation: loadingBounce 1.6s ease-in-out infinite,
-             loadingGlow 2.4s ease-in-out infinite;
-  border-radius: 20px;
-}
-
-/* Brief "connected" state: pulse stops, glow snaps brighter, spinner and
-   dots fade out so the flash reads as a clear success beat, not more waiting. */
-#loading-screen.connected::before {
+#loading-screen.connected .skeleton-shimmer::after {
   animation: none;
-  background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.3), transparent 60%);
-  transition: background 0.3s ease;
-}
-
-#loading-screen.connected img {
-  animation: none;
-  filter: drop-shadow(0 0 20px rgba(255,255,255,0.45));
-}
-
-#loading-screen.connected .spinner,
-#loading-screen.connected .loading-dots {
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-#loading-screen.connected #loading-text {
-  color: #ffffff;
-  font-weight: 600;
-}
-
-@keyframes loadingBounce {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-10px) scale(1.04); }
-}
-
-@keyframes loadingGlow {
-  0%, 100% { filter: drop-shadow(0 0 0px rgba(255,255,255,0.15)); }
-  50% { filter: drop-shadow(0 0 18px rgba(255,255,255,0.35)); }
 }
 
 #loading-screen p {
@@ -1087,48 +1126,12 @@ img.emoji {
   color: var(--gray-1);
   text-align: center;
   max-width: 260px;
-  margin: 0;
+  margin: 16px auto 0;
   transition: opacity 0.25s ease;
 }
 
-.spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid #333;
-  border-top: 3px solid #ffffff;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Animated three-dot loader, sits under the spinner as extra life */
-.loading-dots {
-  display: flex;
-  gap: 6px;
-}
-
-.loading-dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--white);
-  animation: loadingDotBounce 1.1s ease-in-out infinite;
-}
-
-.loading-dots span:nth-child(2) { animation-delay: 0.15s; }
-.loading-dots span:nth-child(3) { animation-delay: 0.3s; }
-
-@keyframes loadingDotBounce {
-  0%, 80%, 100% { opacity: 0.25; transform: translateY(0) scale(0.8); }
-  40% { opacity: 1; transform: translateY(-6px) scale(1); }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  #loading-screen img { animation: none !important; }
-  .loading-dots span { animation: none !important; opacity: 0.6; }
+  .skeleton-shimmer::after { animation: none !important; }
 }
 
 #loading-screen.hidden {

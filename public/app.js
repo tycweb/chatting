@@ -2245,7 +2245,7 @@
       const loadingScreen = document.getElementById("loading-screen");
       if (loadingScreen) loadingScreen.classList.add("connected");
       if (loadingText) loadingText.textContent = "Connected!";
-      setTimeout(hideLoadingScreen, 500);
+      setTimeout(hideLoadingScreen, 300);
 
       connectionDot.classList.remove("connecting", "offline");
       connectionDot.classList.add("online");
@@ -3091,6 +3091,7 @@
   // freshly-loaded <img> of the (typically 2x) result, or null if the model
   // isn't available / errors out, so the caller can fall back gracefully.
   async function aiUpscaleImage(img) {
+    if (window.__loadEnhancerLibs) await window.__loadEnhancerLibs();
     const upscaler = getAiUpscaler();
     if (!upscaler) return null;
     try {
@@ -3269,6 +3270,7 @@
 
   async function getBodyPixNet() {
     if (bodyPixNet || bodyPixFailed) return bodyPixNet;
+    if (window.__loadEnhancerLibs) await window.__loadEnhancerLibs();
     if (typeof window.bodyPix === "undefined") {
       bodyPixFailed = true;
       return null;
