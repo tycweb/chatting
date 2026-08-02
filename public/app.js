@@ -2816,6 +2816,7 @@
   // browser unless the person explicitly taps "Send to chat".
 
   const ENHANCER_MAX_DIMENSION = 1280;
+  const AI_OUTPUT_MAX_DIMENSION = 2200; // let AI output actually be bigger/sharper than input; only capped for file size sanity
   const ENHANCER_JPEG_QUALITY = 0.9;
 
   let enhancerOriginalImageData = null;
@@ -2942,12 +2943,12 @@
 
   function getAiUpscaler() {
     if (aiUpscaler || aiUpscalerFailed) return aiUpscaler;
-    if (typeof window.Upscaler === "undefined" || typeof window.DefaultUpscalerJSModel === "undefined") {
+    if (typeof window.Upscaler === "undefined" || typeof window.ESRGANMedium2x === "undefined") {
       aiUpscalerFailed = true;
       return null;
     }
     try {
-      aiUpscaler = new window.Upscaler({ model: window.DefaultUpscalerJSModel });
+      aiUpscaler = new window.Upscaler({ model: window.ESRGANMedium2x });
     } catch (e) {
       aiUpscalerFailed = true;
       aiUpscaler = null;
@@ -3013,9 +3014,15 @@
 
       let width, height, ctx;
       if (usedAi) {
-        // Cap the final output so it doesn't balloon into a multi-megabyte
-        // send/download just because the model doubled the resolution.
-        const scale = Math.min(1, ENHANCER_MAX_DIMENSION / Math.max(aiResult.width, aiResult.height));
+        // Keep the actual resolution gain from the AI model instead of
+        // immediately resizing it back down to match the (smaller) input —
+        // that was the real bug: aiResult is ~2x the input, and capping it
+        // at ENHANCER_MAX_DIMENSION (the same cap used on the input) scaled
+        // it right back down to the original size, so the "enhanced" photo
+        // was just the original run through two lossy resampling passes
+        // for zero size benefit. This cap is only to keep the file size
+        // sane, not to erase the upscale.
+        const scale = Math.min(1, AI_OUTPUT_MAX_DIMENSION / Math.max(aiResult.width, aiResult.height));
         width = Math.round(aiResult.width * scale);
         height = Math.round(aiResult.height * scale);
         enhancerCanvas.width = width;
