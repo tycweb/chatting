@@ -635,7 +635,13 @@
         updateDmPresence(conv);
       }
 
+      // Appending 100-200 rows one at a time into a visible, in-document
+      // container forces a reflow after every single row. Detaching the
+      // list from layout for the bulk render (then reattaching once) turns
+      // that into a single reflow instead.
+      messageList.style.display = "none";
       res.history.forEach(renderMessage);
+      messageList.style.display = "";
       renderReadReceipts();
       scrollToBottom();
       messageList.querySelectorAll("img.msg-image").forEach((img) => {
@@ -696,7 +702,9 @@
         lastRenderedId = null;
         messageList.innerHTML = "";
         currentReads = new Map(Object.entries(res.reads || {}));
+        messageList.style.display = "none";
         res.history.forEach(renderMessage);
+        messageList.style.display = "";
         renderReadReceipts();
         scrollToBottom();
       }
