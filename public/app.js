@@ -926,9 +926,19 @@
   // "call-signal" -> callee answers -> ICE candidates trade back and forth
   // -> ontrack fires on both sides once media is actually flowing.
 
+  // STUN alone only works when at least one side has an easy-to-map NAT —
+  // it can't relay media itself. Two people behind carrier-grade/symmetric
+  // NAT (very common on mobile data, and some corporate/hotel wifi) will
+  // finish the signaling handshake fine but never get a working media
+  // path, which looks exactly like a call that "connects" into a
+  // permanent black screen. A TURN server relays media as a fallback for
+  // exactly those cases — fill in real credentials from a TURN provider
+  // (e.g. Twilio, Cloudflare Calls, Metered) or a self-hosted coturn
+  // instance below.
   const ICE_SERVERS = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    // { urls: "turn:YOUR_TURN_HOST:3478", username: "YOUR_USERNAME", credential: "YOUR_CREDENTIAL" },
   ];
 
   // Everything about whatever call is ringing, dialing, or connected right
@@ -1004,10 +1014,29 @@
       startCallTimer();
     };
 
+    // Without a TURN relay, a broken media path (see ICE_SERVERS above)
+    // frequently gets stuck in "disconnected" rather than ever reaching
+    // "failed" — that used to leave the call screen sitting on a black
+    // video indefinitely with no error and no way out but a manual hangup.
+    // Give it a short grace period to recover (brief blips are normal),
+    // then end the call with an actual message if it doesn't.
+    let disconnectTimer = null;
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "failed" && currentCall && currentCall.callId === callId) {
+      if (!currentCall || currentCall.callId !== callId) return;
+      if (pc.connectionState === "connected") {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+      } else if (pc.connectionState === "failed") {
+        clearTimeout(disconnectTimer);
         endCall(true);
         showCallToast("Call dropped — connection failed.");
+      } else if (pc.connectionState === "disconnected" && !disconnectTimer) {
+        disconnectTimer = setTimeout(() => {
+          if (currentCall && currentCall.callId === callId && pc.connectionState !== "connected") {
+            endCall(true);
+            showCallToast("Call dropped — connection lost.");
+          }
+        }, 8000);
       }
     };
 

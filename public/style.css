@@ -2703,6 +2703,11 @@ img.emoji {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
   z-index: 3;
   transition: opacity 0.2s ease;
+  /* Mirror the self-view like every camera app does — without this the raw
+     feed is un-mirrored, so raising your right hand appears on your left,
+     text on clothing reads backwards, etc. Only the local PIP gets this;
+     the fullscreen remote video should stay un-mirrored. */
+  transform: scaleX(-1);
 }
 
 .call-local-video.call-video-off { opacity: 0.25; }
