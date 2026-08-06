@@ -39,6 +39,26 @@
   const jumpLabel = document.getElementById("jump-label");
   const soundToggle = document.getElementById("sound-toggle");
   const wallpaperBtn = document.getElementById("wallpaper-btn");
+  const callBtn = document.getElementById("call-btn");
+
+  // Video call UI
+  const incomingCallModal = document.getElementById("incoming-call-modal");
+  const incomingCallAvatar = document.getElementById("incoming-call-avatar");
+  const incomingCallName = document.getElementById("incoming-call-name");
+  const callAcceptBtn = document.getElementById("call-accept-btn");
+  const callDeclineBtn = document.getElementById("call-decline-btn");
+  const callScreen = document.getElementById("call-screen");
+  const callRemoteVideo = document.getElementById("call-remote-video");
+  const callLocalVideo = document.getElementById("call-local-video");
+  const callStatusLayer = document.getElementById("call-status-layer");
+  const callStatusAvatar = document.getElementById("call-status-avatar");
+  const callStatusName = document.getElementById("call-status-name");
+  const callStatusLine = document.getElementById("call-status-line");
+  const callMicBtn = document.getElementById("call-mic-btn");
+  const callCameraBtn = document.getElementById("call-camera-btn");
+  const callHangupBtn = document.getElementById("call-hangup-btn");
+  const callDuration = document.getElementById("call-duration");
+  const callToast = document.getElementById("call-toast");
   const chatHeader = document.querySelector("#chat-screen .chat-header");
 
   // Conversations list UI
@@ -593,6 +613,7 @@
       renderChatTitleAvatar(cachedConv);
     }
     updateAddPeopleVisibility(cachedConv);
+    updateCallButtonVisibility(cachedConv);
     presenceLine.textContent = "connecting…";
     conversationsScreen.classList.add("hidden");
     if (featuresScreen) featuresScreen.classList.add("hidden");
@@ -627,6 +648,7 @@
       chatTitle.textContent = conversationTitle(conv);
       renderChatTitleAvatar(conv);
       updateAddPeopleVisibility(conv);
+      updateCallButtonVisibility(conv);
       if (conv.type === "room") {
         presenceLine.textContent = "public room";
       } else if (conv.type === "group") {
@@ -883,6 +905,276 @@
     const show = !!conv && (conv.type === "dm" || conv.type === "group");
     addPeopleBtn && addPeopleBtn.classList.toggle("hidden", !show);
   }
+
+  // Video calling only works 1:1 for now — groups/rooms don't have a single
+  // "other person" to ring, so the button stays hidden outside of dms.
+  function updateCallButtonVisibility(conv) {
+    const show = !!conv && conv.type === "dm";
+    callBtn && callBtn.classList.toggle("hidden", !show);
+  }
+
+  // ---------- Video calls (WebRTC, 1:1 dm only) ----------
+  //
+  // The server (server.js) only relays signaling messages — SDP offers/
+  // answers and ICE candidates — between the two people on a call. Once
+  // that handshake finishes, video/audio flows directly between the two
+  // browsers (peer-to-peer), never through the server.
+  //
+  // Flow: caller taps Call -> "call-invite" -> server pings the other
+  // person's socket(s) -> they see the incoming-call modal -> Accept ->
+  // "call-accepted" -> caller creates a WebRTC offer -> exchanged via
+  // "call-signal" -> callee answers -> ICE candidates trade back and forth
+  // -> ontrack fires on both sides once media is actually flowing.
+
+  const ICE_SERVERS = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+  ];
+
+  // Everything about whatever call is ringing, dialing, or connected right
+  // now. Null whenever there's no call in progress.
+  // Shape: { callId, conversationId, peerName, role: "caller"|"callee", pc, localStream, localStreamPromise }
+  let currentCall = null;
+  let callTimerInterval = null;
+  let ringtoneInterval = null;
+  let callToastTimeout = null;
+
+  function showCallToast(text) {
+    if (!callToast) return;
+    callToast.textContent = text;
+    callToast.classList.remove("hidden");
+    clearTimeout(callToastTimeout);
+    callToastTimeout = setTimeout(() => callToast.classList.add("hidden"), 3200);
+  }
+
+  // ----- Ringtone: reuses the same Web Audio synth approach as playPop()
+  // instead of shipping an audio file. -----
+
+  function startRingtone() {
+    stopRingtone();
+    if (!soundEnabled || isQuietHoursActive()) return;
+    const ring = () => {
+      playPop(587);
+      setTimeout(() => playPop(740), 160);
+    };
+    ring();
+    ringtoneInterval = setInterval(ring, 2000);
+  }
+
+  function stopRingtone() {
+    clearInterval(ringtoneInterval);
+    ringtoneInterval = null;
+  }
+
+  // ----- Call duration timer -----
+
+  function startCallTimer() {
+    if (callTimerInterval) return;
+    let seconds = 0;
+    callDuration.textContent = "00:00";
+    callDuration.classList.remove("hidden");
+    callTimerInterval = setInterval(() => {
+      seconds++;
+      const m = String(Math.floor(seconds / 60)).padStart(2, "0");
+      const s = String(seconds % 60).padStart(2, "0");
+      callDuration.textContent = `${m}:${s}`;
+    }, 1000);
+  }
+
+  function stopCallTimer() {
+    clearInterval(callTimerInterval);
+    callTimerInterval = null;
+    callDuration.classList.add("hidden");
+  }
+
+  // ----- Peer connection -----
+
+  function createPeerConnection(callId) {
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate && socket) {
+        socket.emit("call-signal", { callId, signal: { type: "ice-candidate", candidate: e.candidate } });
+      }
+    };
+
+    pc.ontrack = (e) => {
+      callRemoteVideo.srcObject = e.streams[0];
+      callStatusLayer.classList.add("hidden");
+      startCallTimer();
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "failed" && currentCall && currentCall.callId === callId) {
+        endCall(true);
+        showCallToast("Call dropped — connection failed.");
+      }
+    };
+
+    return pc;
+  }
+
+  async function getLocalMedia() {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    callLocalVideo.srcObject = stream;
+    return stream;
+  }
+
+  // The caller can end up requesting local media from two places close
+  // together — right after the invite is sent, and again once
+  // "call-accepted" arrives — if the callee answers before the first
+  // getUserMedia() prompt resolves. Both paths await this same promise
+  // instead of firing a second concurrent camera/mic request.
+  function ensureLocalStream(call) {
+    if (!call.localStreamPromise) call.localStreamPromise = getLocalMedia();
+    return call.localStreamPromise;
+  }
+
+  // ----- Screens -----
+
+  function showIncomingCallUI(name) {
+    incomingCallAvatar.innerHTML = avatarInnerHtml(name);
+    incomingCallName.textContent = name;
+    incomingCallModal.classList.remove("hidden");
+    startRingtone();
+    if (navigator.vibrate) navigator.vibrate([300, 200, 300, 200, 300]);
+  }
+
+  function hideIncomingCallUI() {
+    stopRingtone();
+    closeOverlay(incomingCallModal);
+  }
+
+  function showCallScreen(name, statusText) {
+    callStatusAvatar.innerHTML = avatarInnerHtml(name);
+    callStatusName.textContent = name;
+    callStatusLine.textContent = statusText;
+    callStatusLayer.classList.remove("hidden");
+    callRemoteVideo.srcObject = null;
+    callMicBtn.classList.remove("call-btn-off");
+    callCameraBtn.classList.remove("call-btn-off");
+    callLocalVideo.classList.remove("call-video-off");
+    callScreen.classList.remove("hidden");
+  }
+
+  function hideCallScreen() {
+    callScreen.classList.add("hidden");
+    if (callRemoteVideo.srcObject) callRemoteVideo.srcObject = null;
+    if (callLocalVideo.srcObject) callLocalVideo.srcObject = null;
+  }
+
+  // ----- Call lifecycle -----
+
+  function startCall(conv) {
+    if (!socket || currentCall) return;
+    const peerName = otherMembers(conv)[0];
+    if (!peerName) return;
+
+    socket.emit("call-invite", { conversationId: conv.id, callType: "video" }, async (res) => {
+      if (!res || res.error) {
+        if (res && res.error === "user-offline") showCallToast(`${peerName} isn't online right now.`);
+        return;
+      }
+      currentCall = { callId: res.callId, conversationId: conv.id, peerName, role: "caller", pc: null, localStream: null, localStreamPromise: null };
+      showCallScreen(peerName, "Calling…");
+      try {
+        const stream = await ensureLocalStream(currentCall);
+        if (!currentCall || currentCall.callId !== res.callId) {
+          // Call was declined/cancelled/ended while the permission prompt
+          // was still up — don't resurrect it, just release the camera.
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        currentCall.localStream = stream;
+      } catch (err) {
+        console.error("Camera/mic access failed:", err);
+        showCallToast("Couldn't access your camera/mic.");
+        if (currentCall && currentCall.callId === res.callId) endCall(true);
+      }
+    });
+  }
+
+  async function acceptIncomingCall() {
+    if (!currentCall) return;
+    const callId = currentCall.callId;
+    hideIncomingCallUI();
+    showCallScreen(currentCall.peerName, "Connecting…");
+    try {
+      const stream = await getLocalMedia();
+      if (!currentCall || currentCall.callId !== callId) {
+        // Caller cancelled while the permission prompt was still up.
+        stream.getTracks().forEach((t) => t.stop());
+        hideCallScreen();
+        return;
+      }
+      currentCall.localStream = stream;
+      const pc = createPeerConnection(callId);
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      currentCall.pc = pc;
+      socket.emit("call-accept", { callId });
+    } catch (err) {
+      console.error("Camera/mic access failed:", err);
+      if (currentCall && currentCall.callId === callId) {
+        socket.emit("call-decline", { callId });
+        currentCall = null;
+      }
+      hideCallScreen();
+      showCallToast("Couldn't access your camera/mic.");
+    }
+  }
+
+  function declineIncomingCall() {
+    if (!currentCall) return;
+    socket.emit("call-decline", { callId: currentCall.callId });
+    hideIncomingCallUI();
+    currentCall = null;
+  }
+
+  // notifyServer=false when the server already told us the call is over
+  // (declined/cancelled/ended by the other side) — no need to echo it back.
+  function endCall(notifyServer) {
+    if (!currentCall) return;
+    if (notifyServer && socket) {
+      socket.emit(currentCall.pc ? "call-end" : "call-cancel", { callId: currentCall.callId });
+    }
+    if (currentCall.pc) currentCall.pc.close();
+    if (currentCall.localStream) currentCall.localStream.getTracks().forEach((t) => t.stop());
+    stopCallTimer();
+    stopRingtone();
+    hideIncomingCallUI();
+    hideCallScreen();
+    currentCall = null;
+  }
+
+  function toggleMic() {
+    if (!currentCall || !currentCall.localStream) return;
+    const track = currentCall.localStream.getAudioTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    callMicBtn.classList.toggle("call-btn-off", !track.enabled);
+  }
+
+  function toggleCamera() {
+    if (!currentCall || !currentCall.localStream) return;
+    const track = currentCall.localStream.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    callCameraBtn.classList.toggle("call-btn-off", !track.enabled);
+    callLocalVideo.classList.toggle("call-video-off", !track.enabled);
+  }
+
+  callBtn &&
+    callBtn.addEventListener("click", () => {
+      if (!currentConversationId) return;
+      const conv = conversationsMeta.get(currentConversationId);
+      if (conv) startCall(conv);
+    });
+
+  callAcceptBtn && callAcceptBtn.addEventListener("click", acceptIncomingCall);
+  callDeclineBtn && callDeclineBtn.addEventListener("click", declineIncomingCall);
+  callHangupBtn && callHangupBtn.addEventListener("click", () => endCall(true));
+  callMicBtn && callMicBtn.addEventListener("click", toggleMic);
+  callCameraBtn && callCameraBtn.addEventListener("click", toggleCamera);
 
   addPeopleBtn && addPeopleBtn.addEventListener("click", openAddMembersModal);
   addMembersClose && addMembersClose.addEventListener("click", closeAddMembersModal);
@@ -2407,6 +2699,7 @@
       chatTitle.textContent = conversationTitle(conv);
       renderChatTitleAvatar(conv);
       updateAddPeopleVisibility(conv);
+      updateCallButtonVisibility(conv);
       applyWallpaper(conv.wallpaper);
       if (conv.type === "room") {
         presenceLine.textContent = "public room";
@@ -2477,6 +2770,76 @@
         othersTyping.delete(name);
       }
       updateTypingUI();
+    });
+
+    // ----- Video call signaling -----
+
+    socket.on("call-incoming", ({ callId, conversationId, from, callType } = {}) => {
+      if (currentCall) {
+        // Already ringing/dialing/on a call — auto-decline instead of
+        // showing a second incoming-call screen on top of this one.
+        socket.emit("call-decline", { callId });
+        return;
+      }
+      currentCall = { callId, conversationId, peerName: from, role: "callee", pc: null, localStream: null };
+      showIncomingCallUI(from);
+    });
+
+    socket.on("call-accepted", async ({ callId } = {}) => {
+      if (!currentCall || currentCall.callId !== callId || currentCall.role !== "caller") return;
+      callStatusLine.textContent = "Connecting…";
+      try {
+        const stream = await ensureLocalStream(currentCall);
+        if (!currentCall || currentCall.callId !== callId) return; // call ended meanwhile
+        currentCall.localStream = stream;
+        const pc = createPeerConnection(callId);
+        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        currentCall.pc = pc;
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit("call-signal", { callId, signal: { type: "offer", sdp: offer } });
+      } catch (err) {
+        console.error("Failed to start call after accept:", err);
+        showCallToast("Couldn't start the call.");
+        endCall(true);
+      }
+    });
+
+    socket.on("call-declined", ({ callId } = {}) => {
+      if (!currentCall || currentCall.callId !== callId) return;
+      showCallToast(`${currentCall.peerName} declined the call.`);
+      endCall(false);
+    });
+
+    socket.on("call-cancelled", ({ callId } = {}) => {
+      if (!currentCall || currentCall.callId !== callId) return;
+      hideIncomingCallUI();
+      currentCall = null;
+    });
+
+    socket.on("call-signal", async ({ callId, signal } = {}) => {
+      if (!currentCall || currentCall.callId !== callId || !currentCall.pc || !signal) return;
+      const pc = currentCall.pc;
+      try {
+        if (signal.type === "offer") {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit("call-signal", { callId, signal: { type: "answer", sdp: answer } });
+        } else if (signal.type === "answer") {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        } else if (signal.type === "ice-candidate" && signal.candidate) {
+          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+        }
+      } catch (err) {
+        console.error("call-signal handling failed:", err);
+      }
+    });
+
+    socket.on("call-ended", ({ callId } = {}) => {
+      if (!currentCall || currentCall.callId !== callId) return;
+      showCallToast("Call ended.");
+      endCall(false);
     });
   }
 

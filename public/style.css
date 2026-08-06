@@ -2575,3 +2575,191 @@ img.emoji {
   opacity: 1;
   flex-shrink: 0;
 }
+
+/* ---------- Video calls ---------- */
+
+.call-toast {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10100;
+  background: rgba(17, 17, 17, 0.96);
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: 100px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  max-width: 86%;
+  text-align: center;
+}
+
+.call-toast.hidden { display: none; }
+
+/* Incoming call modal — reuses .exit-modal/.exit-modal-card, just adds a
+   pulsing avatar and swaps the two buttons for round accept/decline discs. */
+
+.call-card { padding-top: 30px; padding-bottom: 26px; }
+
+.call-avatar-ring {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  font-size: 28px;
+  margin: 0 auto 16px;
+  animation: call-ring-pulse 1.6s ease-out infinite;
+}
+
+@keyframes call-ring-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.5); }
+  70% { box-shadow: 0 0 0 16px rgba(255, 107, 53, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0); }
+}
+
+.call-card .exit-modal-actions { justify-content: center; gap: 28px; }
+
+.call-btn-accept,
+.call-btn-decline {
+  flex: none;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.call-btn-accept { background: var(--online); color: var(--black-0); }
+.call-btn-decline { background: #ef4444; color: var(--white); }
+
+/* Active call screen — fullscreen video with a status layer shown until
+   the remote stream actually connects, then it fades out of the way. */
+
+.call-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.call-screen.hidden { display: none; }
+
+.call-remote-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.call-status-layer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  padding: 0 24px;
+  transition: opacity 0.25s ease;
+}
+
+.call-status-layer.hidden { opacity: 0; pointer-events: none; }
+
+.call-status-avatar { width: 96px; height: 96px; font-size: 36px; margin-bottom: 12px; }
+
+.call-status-name {
+  color: var(--white);
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.call-status-line {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 14px;
+  margin: 0;
+}
+
+.call-local-video {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  right: 16px;
+  width: 92px;
+  height: 130px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  background: var(--black-2);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  z-index: 3;
+  transition: opacity 0.2s ease;
+}
+
+.call-local-video.call-video-off { opacity: 0.25; }
+
+.call-controls {
+  position: absolute;
+  bottom: max(36px, env(safe-area-inset-bottom));
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+}
+
+.call-ctrl-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.call-ctrl-btn:active { transform: scale(0.92); }
+.call-ctrl-btn.call-btn-off { background: var(--white); color: var(--black-0); }
+
+.call-ctrl-hangup { width: 64px; height: 64px; background: #ef4444; }
+.call-ctrl-hangup:hover { background: #dc2626; }
+
+.call-duration {
+  position: absolute;
+  top: max(20px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 5px 12px;
+  border-radius: 100px;
+  letter-spacing: 0.5px;
+}
+
+.call-duration.hidden { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .call-avatar-ring, .call-status-layer, .call-local-video, .call-ctrl-btn {
+    animation: none !important;
+    transition: none !important;
+  }
+}

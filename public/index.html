@@ -379,6 +379,9 @@
         <button id="search-btn" class="icon-btn" aria-label="Search messages" type="button">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
         </button>
+        <button id="call-btn" class="icon-btn hidden" aria-label="Video call" type="button">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+        </button>
         <button id="wallpaper-btn" class="icon-btn" aria-label="Chat theme" type="button">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6H16c3.3 0 6-2.7 6-6 0-4.4-4.5-8-10-8Z"/></svg>
         </button>
@@ -448,6 +451,55 @@
     <a id="lightbox-download" class="lightbox-download" download="photo.jpg" aria-label="Download photo" title="Download">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/></svg>
     </a>
+  </div>
+
+  <!-- Call-related status messages (offline, declined, media errors) — shown
+       regardless of which screen/tab is active, since calls aren't scoped
+       to being on the chat screen. -->
+  <div id="call-toast" class="call-toast hidden"></div>
+
+  <!-- Incoming call modal -->
+  <div id="incoming-call-modal" class="exit-modal hidden">
+    <div class="exit-modal-card call-card">
+      <div id="incoming-call-avatar" class="brand-mark call-avatar-ring"></div>
+      <p id="incoming-call-name" class="exit-modal-title">Someone</p>
+      <p class="exit-modal-sub">Incoming video call…</p>
+      <div class="exit-modal-actions">
+        <button id="call-decline-btn" class="exit-btn call-btn-decline" type="button" aria-label="Decline">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.8 12.8 0 0 0 2.81.7A2 2 0 0 1 22 17v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72 12.8 12.8 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.08 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+        </button>
+        <button id="call-accept-btn" class="exit-btn call-btn-accept" type="button" aria-label="Accept">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active call screen (also used for the outgoing "calling…" state) -->
+  <div id="call-screen" class="call-screen hidden">
+    <video id="call-remote-video" class="call-remote-video" autoplay playsinline></video>
+
+    <div id="call-status-layer" class="call-status-layer">
+      <div id="call-status-avatar" class="brand-mark call-avatar-ring call-status-avatar"></div>
+      <p id="call-status-name" class="call-status-name">Someone</p>
+      <p id="call-status-line" class="call-status-line">Calling…</p>
+    </div>
+
+    <video id="call-local-video" class="call-local-video" autoplay playsinline muted></video>
+
+    <div class="call-controls">
+      <button id="call-mic-btn" class="call-ctrl-btn" type="button" aria-label="Mute microphone">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+      <button id="call-hangup-btn" class="call-ctrl-btn call-ctrl-hangup" type="button" aria-label="End call">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.8 12.8 0 0 0 2.81.7A2 2 0 0 1 22 17v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72 12.8 12.8 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.08 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+      </button>
+      <button id="call-camera-btn" class="call-ctrl-btn" type="button" aria-label="Turn camera off">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+      </button>
+    </div>
+
+    <p id="call-duration" class="call-duration hidden">00:00</p>
   </div>
 
   <!-- Exit confirmation modal -->
