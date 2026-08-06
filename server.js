@@ -144,6 +144,15 @@ const knownUsers = new Set(); // every name that has ever joined — the "direct
 const onlineUsers = new Map(); // socket.id -> name
 const socketsByName = new Map(); // name -> Set(socket.id)
 const passwords = new Map(); // name -> { salt, hash } — set once, the first time a name is claimed
+// callId -> { conversationId, from, to, fromSocketId, toSocketId }. The server
+// never touches call video/audio — it only relays WebRTC offers/answers/ICE
+// candidates between the two peers so their browsers can connect directly.
+const activeCalls = new Map();
+
+function socketsFor(name) {
+  const set = socketsByName.get(name);
+  return set ? Array.from(set) : [];
+}
 const avatars = new Map(); // name -> avatar URL (custom profile picture, if they've set one)
 const MAX_AVATAR_BYTES = 3 * 1024 * 1024; // ~3MB decoded ceiling for a profile picture
 
@@ -1028,6 +1037,78 @@ io.on("connection", (socket) => {
     io.to(conversationId).emit("reaction", { conversationId, id, reactions: msg.reactions });
   });
 
+  // --- Video/audio calls (1:1 DMs only — WebRTC signaling relay) ---
+
+  socket.on("call-invite", ({ conversationId, callType } = {}, ack) => {
+    const reply = (result) => {
+      if (typeof ack === "function") ack(result);
+    };
+    const from = socket.data.name;
+    if (!from) return reply({ error: "not-joined" });
+
+    const conv = conversations.get(conversationId);
+    if (!conv || !isMember(conv, from)) return reply({ error: "not-found" });
+    if (conv.type !== "dm") return reply({ error: "calls-are-dm-only" });
+
+    const to = conv.members.find((m) => m !== from);
+    const toSockets = socketsFor(to);
+    if (!toSockets.length) return reply({ error: "user-offline" });
+
+    const callId = `${conversationId}-${Date.now()}`;
+    activeCalls.set(callId, {
+      conversationId,
+      from,
+      to,
+      fromSocketId: socket.id,
+      toSocketId: null, // filled in once the callee's tab actually answers
+    });
+
+    const type = callType === "audio" ? "audio" : "video";
+    toSockets.forEach((sid) => {
+      io.to(sid).emit("call-incoming", { callId, conversationId, from, callType: type });
+    });
+
+    reply({ callId });
+  });
+
+  socket.on("call-accept", ({ callId } = {}) => {
+    const call = activeCalls.get(callId);
+    if (!call || call.to !== socket.data.name) return;
+    call.toSocketId = socket.id;
+    io.to(call.fromSocketId).emit("call-accepted", { callId });
+  });
+
+  socket.on("call-decline", ({ callId } = {}) => {
+    const call = activeCalls.get(callId);
+    if (!call || call.to !== socket.data.name) return;
+    io.to(call.fromSocketId).emit("call-declined", { callId });
+    activeCalls.delete(callId);
+  });
+
+  socket.on("call-cancel", ({ callId } = {}) => {
+    const call = activeCalls.get(callId);
+    if (!call || call.from !== socket.data.name) return;
+    socketsFor(call.to).forEach((sid) => io.to(sid).emit("call-cancelled", { callId }));
+    activeCalls.delete(callId);
+  });
+
+  // Generic relay for SDP offers/answers and ICE candidates — opaque payload,
+  // the server just forwards it to whichever side didn't send it.
+  socket.on("call-signal", ({ callId, signal } = {}) => {
+    const call = activeCalls.get(callId);
+    if (!call) return;
+    const targetSocketId = socket.id === call.fromSocketId ? call.toSocketId : call.fromSocketId;
+    if (targetSocketId) io.to(targetSocketId).emit("call-signal", { callId, signal });
+  });
+
+  socket.on("call-end", ({ callId } = {}) => {
+    const call = activeCalls.get(callId);
+    if (!call) return;
+    const otherSocketId = socket.id === call.fromSocketId ? call.toSocketId : call.fromSocketId;
+    if (otherSocketId) io.to(otherSocketId).emit("call-ended", { callId });
+    activeCalls.delete(callId);
+  });
+
   socket.on("disconnect", () => {
     const name = onlineUsers.get(socket.id);
     onlineUsers.delete(socket.id);
@@ -1038,6 +1119,16 @@ io.on("connection", (socket) => {
         if (set.size === 0) socketsByName.delete(name);
       }
       broadcastPresence();
+    }
+
+    // If this socket was one side of an active call, tell the other side
+    // the call dropped instead of leaving them stuck on a dead connection.
+    for (const [callId, call] of activeCalls) {
+      if (call.fromSocketId === socket.id || call.toSocketId === socket.id) {
+        const otherSocketId = call.fromSocketId === socket.id ? call.toSocketId : call.fromSocketId;
+        if (otherSocketId) io.to(otherSocketId).emit("call-ended", { callId });
+        activeCalls.delete(callId);
+      }
     }
   });
 });
