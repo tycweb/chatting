@@ -368,6 +368,12 @@ img.emoji {
 
 .message-list::-webkit-scrollbar { display: none; }
 
+/* The composer emoji picker is an absolutely-positioned overlay, not part
+   of normal flow, so opening it doesn't push the message list up on its
+   own. This reserves space for it so it stops sitting on top of the
+   newest bubble. */
+.message-list.emoji-picker-open { padding-bottom: 168px; transition: padding-bottom 0.15s ease; }
+
 .pull-refresh-indicator {
   height: 0;
   overflow: hidden;

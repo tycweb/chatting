@@ -1605,7 +1605,7 @@
   // follows this one (hide the timestamp, flatten the bottom seam).
   function buildRowInnerHtml(msg, groupedPrev, groupedNext) {
     const isMe = msg.name === myName;
-    const avatar = !groupedNext ? avatarHtml(msg.name) : `<div class="msg-avatar"></div>`;
+    const avatar = isMe ? "" : (!groupedNext ? avatarHtml(msg.name) : `<div class="msg-avatar"></div>`);
     const nameLabel = !isMe && !groupedPrev
       ? `<p class="msg-name" style="color:${colorForName(msg.name)}">${escapeHtml(msg.name)}</p>`
       : "";
@@ -3396,7 +3396,15 @@
 
     emojiBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      const opening = emojiPicker.classList.contains("hidden");
+      const wasNearBottom = isNearBottom();
       emojiPicker.classList.toggle("hidden");
+      // The picker floats above the composer as an absolutely-positioned
+      // overlay, so it doesn't push the message list's layout — without
+      // this it just sits on top of the most recent bubble instead of
+      // the list making room for it.
+      messageList.classList.toggle("emoji-picker-open", opening);
+      if (opening && wasNearBottom) scrollToBottom();
     });
 
     emojiPicker.addEventListener("click", (e) => {
@@ -3419,6 +3427,7 @@
         !emojiBtn.contains(e.target)
       ) {
         emojiPicker.classList.add("hidden");
+        messageList.classList.remove("emoji-picker-open");
       }
     });
   }
