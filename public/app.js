@@ -609,12 +609,26 @@
     messageList.innerHTML = "";
     renderMessageSkeleton();
     if (cachedConv) {
+      // We already know the name/avatar — show the real thing immediately,
+      // no need to shimmer what we already have.
+      chatTitle.classList.remove("skeleton-line");
       chatTitle.textContent = conversationTitle(cachedConv);
+      chatTitleAvatar.classList.remove("skeleton-block");
       renderChatTitleAvatar(cachedConv);
+    } else {
+      // First time seeing this conversation (e.g. cold load) — shimmer the
+      // title/avatar too instead of flashing stale/placeholder text.
+      chatTitle.textContent = "";
+      chatTitle.classList.add("skeleton-line");
+      chatTitleAvatar.textContent = "";
+      chatTitleAvatar.classList.add("skeleton-block");
     }
     updateAddPeopleVisibility(cachedConv);
     updateCallButtonVisibility(cachedConv);
-    presenceLine.textContent = "connecting…";
+    // Shimmer bar instead of a literal "connecting…" string, so the header
+    // reads as "content still loading" rather than a stalled network state.
+    presenceLine.textContent = "";
+    presenceLine.classList.add("skeleton-line");
     conversationsScreen.classList.add("hidden");
     if (featuresScreen) featuresScreen.classList.add("hidden");
     if (menuScreen) menuScreen.classList.add("hidden");
@@ -625,6 +639,10 @@
       if (pendingOpenId !== id) return; // user already switched to another chat
       if (!res || res.error) {
         messageList.innerHTML = "";
+        chatTitle.classList.remove("skeleton-line");
+        chatTitleAvatar.classList.remove("skeleton-block");
+        presenceLine.classList.remove("skeleton-line");
+        presenceLine.textContent = "";
         renderSystem("Couldn't open that chat.");
         return;
       }
@@ -645,10 +663,13 @@
       applyWallpaper(conv.wallpaper);
       currentReads = new Map(Object.entries(res.reads || {}));
 
+      chatTitle.classList.remove("skeleton-line");
       chatTitle.textContent = conversationTitle(conv);
+      chatTitleAvatar.classList.remove("skeleton-block");
       renderChatTitleAvatar(conv);
       updateAddPeopleVisibility(conv);
       updateCallButtonVisibility(conv);
+      presenceLine.classList.remove("skeleton-line");
       if (conv.type === "room") {
         presenceLine.textContent = "public room";
       } else if (conv.type === "group") {

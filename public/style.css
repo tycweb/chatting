@@ -226,6 +226,28 @@ img.emoji {
   max-width: 240px;
 }
 
+/* Chat header while a conversation is opening: swap the "connecting…"
+   text/title for shimmer bars instead, matching the message skeleton
+   already shown below it. */
+.presence-line.skeleton-line {
+  height: 10px;
+  width: 64px;
+  border-radius: 4px;
+  margin-top: 3px;
+}
+
+#chat-title.skeleton-line {
+  display: inline-block;
+  height: 13px;
+  width: 96px;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+#chat-title-avatar.skeleton-block {
+  color: transparent;
+}
+
 .connection-dot {
   width: 8px;
   height: 8px;
