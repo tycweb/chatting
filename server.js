@@ -33,12 +33,15 @@ const MAX_CONV_NAME_LENGTH = 40;
 const MAX_GROUP_MEMBERS = 30;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB decoded ceiling for a single photo
 const MAX_VIDEO_BYTES = 27 * 1024 * 1024; // ~20MB video, base64-encoded (adds ~33%)
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024; // ~6MB voice clip, base64-encoded (adds ~33%)
 const MIN_PASSWORD_LENGTH = 4;
 const MAX_PASSWORD_LENGTH = 64;
-// Set ALLOW_IMAGES=false / ALLOW_VIDEOS=false as env vars on the host (e.g. Render)
-// to turn either off without touching code — useful if bandwidth is getting tight.
+// Set ALLOW_IMAGES=false / ALLOW_VIDEOS=false / ALLOW_AUDIO=false as env vars on
+// the host (e.g. Render) to turn any off without touching code — useful if
+// bandwidth is getting tight.
 const ALLOW_IMAGES = process.env.ALLOW_IMAGES !== "false";
 const ALLOW_VIDEOS = process.env.ALLOW_VIDEOS !== "false";
+const ALLOW_AUDIO = process.env.ALLOW_AUDIO !== "false";
 
 // --- Optional object storage for photos & videos (Supabase Storage / any S3-compatible host) ---
 // Without this, media is stored inline as base64 — it works, but every open of
@@ -117,6 +120,10 @@ const EXT_BY_MIME = {
   "video/mp4": "mp4",
   "video/webm": "webm",
   "video/quicktime": "mov",
+  "audio/webm": "webm",
+  "audio/mp4": "m4a",
+  "audio/mpeg": "mp3",
+  "audio/ogg": "ogg",
 };
 
 function extFromMime(mime) {
@@ -444,7 +451,13 @@ app.post("/api/subscribe", (req, res) => {
 
 // Notify a specific set of names (minus the sender) that a new message arrived.
 async function notifyNewMessage(msg, conv) {
-  const body = msg.video ? "🎥 Sent a video" : msg.image ? "📷 Sent a photo" : msg.text;
+  const body = msg.video
+    ? "🎥 Sent a video"
+    : msg.image
+    ? "📷 Sent a photo"
+    : msg.audio
+    ? "🎤 Sent a voice message"
+    : msg.text;
   const title = conv.type === "room" ? `${msg.name} in #${conv.name}` : `${msg.name}`;
   const payload = JSON.stringify({ title, body, url: "/" });
 
@@ -511,9 +524,10 @@ function buildReplySnapshot(conv, rawReplyTo) {
   return {
     id: original.id,
     name: original.name,
-    text: original.image || original.video ? "" : original.text.slice(0, 120),
+    text: original.image || original.video || original.audio ? "" : original.text.slice(0, 120),
     image: !!original.image,
     video: !!original.video,
+    audio: !!original.audio,
   };
 }
 
@@ -563,6 +577,7 @@ function summarize(conv, forName) {
           text: last.deleted ? "" : last.text,
           image: !last.deleted && !!last.image,
           video: !last.deleted && !!last.video,
+          audio: !last.deleted && !!last.audio,
           deleted: !!last.deleted,
           time: last.time,
         }
@@ -648,7 +663,7 @@ io.on("connection", (socket) => {
       name,
       conversations: conversationsForUser(name),
       directory: Array.from(knownUsers).filter((n) => n !== name),
-      media: { images: ALLOW_IMAGES, videos: ALLOW_VIDEOS },
+      media: { images: ALLOW_IMAGES, videos: ALLOW_VIDEOS, audio: ALLOW_AUDIO },
       avatars: Object.fromEntries(avatars),
     });
 
@@ -929,6 +944,7 @@ io.on("connection", (socket) => {
     const rawText = payload && payload.text;
     const rawImage = payload && payload.image;
     const rawVideo = payload && payload.video;
+    const rawAudio = payload && payload.audio;
     const rawReplyTo = payload && payload.replyTo;
 
     const clean = sanitize(rawText).slice(0, MAX_MESSAGE_LENGTH);
@@ -959,7 +975,20 @@ io.on("connection", (socket) => {
       if (!video) return;
     }
 
-    if (!clean && !image && !video) return;
+    let audio = null;
+    if (typeof rawAudio === "string" && rawAudio.startsWith("data:audio/")) {
+      if (!ALLOW_AUDIO) return;
+      if (rawAudio.length > MAX_AUDIO_BYTES) return;
+      try {
+        audio = await uploadMedia(rawAudio, "audio");
+      } catch (err) {
+        console.error("Audio upload failed:", err.message);
+        return;
+      }
+      if (!audio) return;
+    }
+
+    if (!clean && !image && !video && !audio) return;
 
     const msg = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -968,6 +997,7 @@ io.on("connection", (socket) => {
       text: clean,
       image,
       video,
+      audio,
       time: Date.now(),
       reactions: {},
       replyTo: buildReplySnapshot(conv, rawReplyTo),
