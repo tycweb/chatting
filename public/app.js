@@ -32,6 +32,11 @@
   const typingName = document.getElementById("typing-name");
   const attachBtn = document.getElementById("attach-btn");
   const imageInput = document.getElementById("image-input");
+  const cameraBtn = document.getElementById("camera-btn");
+  const cameraInput = document.getElementById("camera-input");
+  const voiceBtn = document.getElementById("voice-btn");
+  const emojiBtn = document.getElementById("emoji-btn");
+  const emojiPicker = document.getElementById("emoji-picker");
   const lightbox = document.getElementById("lightbox");
   const lightboxImg = document.getElementById("lightbox-img");
   const jumpPill = document.getElementById("jump-pill");
@@ -448,6 +453,7 @@
     let body;
     if (last.video) body = "🎥 Video";
     else if (last.image) body = "📷 Photo";
+    else if (last.audio) body = "🎤 Voice message";
     else body = last.text || "";
     return conv.type === "room" || conv.type === "group" ? `${who}: ${body}` : body;
   }
@@ -1564,6 +1570,8 @@
       ? "🎥 Video"
       : replyTo.image
       ? "📷 Photo"
+      : replyTo.audio
+      ? "🎤 Voice message"
       : escapeHtml(replyTo.text || "");
     const jumpAttr = replyTo.id ? ` data-jump-to="${replyTo.id}"` : "";
     return `<div class="reply-quote"${jumpAttr}>
@@ -1597,7 +1605,7 @@
   // follows this one (hide the timestamp, flatten the bottom seam).
   function buildRowInnerHtml(msg, groupedPrev, groupedNext) {
     const isMe = msg.name === myName;
-    const avatar = !isMe && !groupedNext ? avatarHtml(msg.name) : !isMe ? `<div class="msg-avatar"></div>` : "";
+    const avatar = !groupedNext ? avatarHtml(msg.name) : `<div class="msg-avatar"></div>`;
     const nameLabel = !isMe && !groupedPrev
       ? `<p class="msg-name" style="color:${colorForName(msg.name)}">${escapeHtml(msg.name)}</p>`
       : "";
@@ -1616,7 +1624,7 @@
       `;
     }
 
-    const jumbo = !msg.image && !msg.video && isJumboEmoji(msg.text);
+    const jumbo = !msg.image && !msg.video && !msg.audio && isJumboEmoji(msg.text);
     let bubbleInner;
     if (msg.video) {
       bubbleInner = `<video class="msg-video" src="${msg.video}" controls playsinline preload="metadata"></video>`;
@@ -1624,6 +1632,8 @@
       bubbleInner = `<span>🎥 Video (no longer available after restart)</span>`;
     } else if (msg.image) {
       bubbleInner = `<img class="msg-image" src="${msg.image}" alt="Shared photo" data-lightbox="${msg.id}" />`;
+    } else if (msg.audio) {
+      bubbleInner = `<div class="msg-audio-wrap"><span class="msg-audio-icon">🎤</span><audio class="msg-audio" src="${msg.audio}" controls preload="metadata"></audio></div>`;
     } else if (jumbo) {
       bubbleInner = `<div class="msg-text">${escapeHtml(msg.text)}</div>`;
     } else {
@@ -1633,6 +1643,7 @@
     const bubbleClasses = ["msg-bubble"];
     if (msg.image) bubbleClasses.push("msg-bubble-image");
     if (msg.video) bubbleClasses.push("msg-bubble-image"); // reuse the same no-padding media styling
+    if (msg.audio) bubbleClasses.push("msg-bubble-audio");
     if (jumbo) bubbleClasses.push("msg-bubble-jumbo");
 
     const editedTag = msg.edited ? `<span class="edited-tag">edited</span>` : "";
@@ -2019,12 +2030,15 @@
       text: msg.text || "",
       image: !!msg.image,
       video: !!msg.video,
+      audio: !!msg.audio,
     };
     replyPreviewName.textContent = replyTarget.name;
     replyPreviewText.textContent = replyTarget.video
       ? "🎥 Video"
       : replyTarget.image
       ? "📷 Photo"
+      : replyTarget.audio
+      ? "🎤 Voice message"
       : replyTarget.text;
     replyPreview.classList.remove("hidden");
     messageInput.focus();
@@ -3278,6 +3292,136 @@
     }
     imageInput.value = "";
   });
+
+  cameraBtn &&
+    cameraInput &&
+    cameraBtn.addEventListener("click", () => cameraInput.click());
+  cameraInput &&
+    cameraInput.addEventListener("change", () => {
+      const file = cameraInput.files && cameraInput.files[0];
+      if (file) sendImage(file);
+      cameraInput.value = "";
+    });
+
+  // ---------- Voice messages ----------
+
+  let voiceRecorder = null;
+  let voiceChunks = [];
+  let voiceRecording = false;
+  let voiceStatusEl = null;
+
+  async function sendAudio(blob) {
+    if (!socket || !blob || !currentConversationId) return;
+    voiceBtn.disabled = true;
+    const statusEl = renderStatus("Sending voice message…");
+    await nextPaint();
+    const minVisible = wait(400);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Could not read recording"));
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+      const payload = { conversationId: currentConversationId, audio: dataUrl };
+      if (replyTarget) payload.replyTo = { id: replyTarget.id };
+      await minVisible;
+      socket.emit("message", payload);
+      clearReplyTarget();
+    } catch (err) {
+      console.error("Voice message send failed:", err);
+      renderSystem("Couldn't send that voice message.");
+    } finally {
+      voiceBtn.disabled = false;
+      statusEl.remove();
+    }
+  }
+
+  async function startVoiceRecording() {
+    if (!currentConversationId) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceChunks = [];
+      const mimeType =
+        window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "";
+      voiceRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      voiceRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size) voiceChunks.push(e.data);
+      };
+      voiceRecorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        voiceBtn.classList.remove("recording");
+        voiceRecording = false;
+        if (voiceStatusEl) {
+          voiceStatusEl.remove();
+          voiceStatusEl = null;
+        }
+        const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || "audio/webm" });
+        if (blob.size > 300) sendAudio(blob);
+      };
+      voiceRecorder.start();
+      voiceRecording = true;
+      voiceBtn.classList.add("recording");
+      voiceStatusEl = renderStatus("Recording voice message… tap the mic to send");
+      if (navigator.vibrate) navigator.vibrate(10);
+    } catch (err) {
+      console.error("Mic access failed:", err);
+      renderSystem("Couldn't access your microphone.");
+    }
+  }
+
+  function stopVoiceRecording() {
+    if (voiceRecorder && voiceRecording) voiceRecorder.stop();
+  }
+
+  voiceBtn &&
+    voiceBtn.addEventListener("click", () => {
+      if (voiceRecording) stopVoiceRecording();
+      else startVoiceRecording();
+    });
+
+  // ---------- Emoji picker ----------
+
+  const EMOJI_SET = [
+    "😀", "😂", "😍", "😊", "😉", "😢", "😮", "😡", "👍", "👎", "❤️", "🔥",
+    "🎉", "🙏", "👏", "😴", "🤔", "😭", "😎", "🥳", "💀", "✨", "👀", "🤯",
+  ];
+
+  if (emojiBtn && emojiPicker) {
+    emojiPicker.innerHTML = EMOJI_SET.map(
+      (e) => `<button type="button" class="emoji-picker-item">${e}</button>`
+    ).join("");
+
+    emojiBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      emojiPicker.classList.toggle("hidden");
+    });
+
+    emojiPicker.addEventListener("click", (e) => {
+      const btn = e.target.closest(".emoji-picker-item");
+      if (!btn) return;
+      const start = messageInput.selectionStart ?? messageInput.value.length;
+      const end = messageInput.selectionEnd ?? messageInput.value.length;
+      messageInput.value = messageInput.value.slice(0, start) + btn.textContent + messageInput.value.slice(end);
+      const pos = start + btn.textContent.length;
+      messageInput.focus();
+      messageInput.setSelectionRange(pos, pos);
+      autosize();
+    });
+
+    document.addEventListener("click", (e) => {
+      if (
+        !emojiPicker.classList.contains("hidden") &&
+        !emojiPicker.contains(e.target) &&
+        e.target !== emojiBtn &&
+        !emojiBtn.contains(e.target)
+      ) {
+        emojiPicker.classList.add("hidden");
+      }
+    });
+  }
 
   messageInput.addEventListener("input", () => {
     autosize();
