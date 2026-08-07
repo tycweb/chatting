@@ -214,6 +214,16 @@ img.emoji {
   font-weight: 600;
   margin: 0;
   letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-title-info {
+  /* Without this, a flex child's default min-width is its content's natural
+     width, so it never actually shrinks — the name just overflows past its
+     box and sits on top of the header-right icons instead of truncating. */
+  min-width: 0;
 }
 
 .presence-line {
