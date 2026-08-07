@@ -529,6 +529,17 @@
       item.addEventListener("click", () => openConversationById(conv.id));
       conversationList.appendChild(item);
     });
+    updateActiveConvHighlight();
+  }
+
+  // On desktop the conversation list stays visible next to the open chat
+  // (see the wide-screen layout in style.css), so — like Messenger's own
+  // sidebar — the open conversation needs a highlighted row. Harmless on
+  // mobile since the list isn't on screen at the same time as a chat there.
+  function updateActiveConvHighlight() {
+    conversationList.querySelectorAll(".conv-item").forEach((item) => {
+      item.classList.toggle("active", item.dataset.id === currentConversationId);
+    });
   }
 
   function upsertConversation(conv, opts = {}) {
@@ -549,6 +560,8 @@
     closePicker();
     closeActionMenu();
     currentConversationId = null;
+    updateActiveConvHighlight();
+    chatScreen.classList.remove("has-open");
     chatScreen.classList.add("hidden");
     conversationsScreen.classList.add("hidden");
     if (featuresScreen) featuresScreen.classList.add("hidden");
@@ -634,6 +647,7 @@
     if (menuScreen) menuScreen.classList.add("hidden");
     if (bottomNav) bottomNav.classList.add("hidden");
     chatScreen.classList.remove("hidden");
+    chatScreen.classList.add("has-open");
 
     socket.emit("open-conversation", { id }, (res) => {
       if (pendingOpenId !== id) return; // user already switched to another chat
@@ -647,6 +661,7 @@
         return;
       }
       currentConversationId = id;
+      updateActiveConvHighlight();
       clearReplyTarget();
       cancelEdit();
       messagesById.clear();
@@ -2575,6 +2590,10 @@
   }
 
   function connect(name, password) {
+    // Gates the desktop 2-pane layout in CSS — without this, the media query
+    // would force conversations-screen/chat-screen visible underneath the
+    // join form too, since they technically exist in the DOM the whole time.
+    document.body.classList.add("app-active");
     socket = io({ reconnectionAttempts: Infinity });
     connectionDot.classList.add("connecting");
 

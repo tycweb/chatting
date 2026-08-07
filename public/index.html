@@ -359,6 +359,10 @@
 
   <!-- Chat screen -->
   <div id="chat-screen" class="screen chat-screen hidden">
+    <!-- Desktop only (see style.css): covers the pane until a conversation
+         is actually opened, instead of showing the header's generic
+         placeholder title/avatar with an empty message list underneath. -->
+    <div id="chat-empty-state" class="chat-empty-state">Select a conversation to start chatting</div>
     <header class="chat-header">
       <div class="header-left">
         <button id="back-btn" class="icon-btn back-btn" aria-label="Back to chats" type="button">

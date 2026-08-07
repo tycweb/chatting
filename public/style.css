@@ -50,6 +50,12 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* Desktop-only "no conversation selected" placeholder (see the >=900px
+   layout block near the end of this file) — must default to hidden here,
+   since on mobile the chat-screen is only ever visible after a chat has
+   already been opened, so this should never appear there at all. */
+.chat-empty-state { display: none; }
+
 /* Twemoji swaps every emoji character for one of these <img> tags so emoji
    look the same (Telegram/Discord-style flat art) on every phone instead of
    each device's own stock emoji font. */
@@ -2798,5 +2804,104 @@ img.emoji {
   .call-avatar-ring, .call-status-layer, .call-local-video, .call-ctrl-btn {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* ============================================================
+   Desktop layout (>=900px): sidebar + conversation list + open
+   chat side by side, like Messenger's own layout, instead of one
+   full-screen panel swapping for the other. `.app-active` only
+   gets added to <body> once the join form is done (see connect()
+   in app.js) so this never shows an empty list/chat pane peeking
+   out from behind the join screen. JS still adds/removes "hidden"
+   on these exactly as it does for mobile — this block just makes
+   that class a no-op for the three panes that should always stay
+   visible together, so the mobile logic didn't need to change.
+   ============================================================ */
+@media (min-width: 900px) {
+  body.app-active {
+    display: flex;
+    justify-content: center;
+    align-items: stretch;
+  }
+
+  body.app-active .bottom-nav.hidden,
+  body.app-active .conversations-screen.hidden,
+  body.app-active .chat-screen.hidden {
+    display: flex !important;
+  }
+
+  /* Bottom tab bar becomes a left rail. */
+  body.app-active .bottom-nav {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    max-width: none;
+    margin: 0;
+    flex: 0 0 76px;
+    flex-direction: column;
+    justify-content: flex-start;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
+    padding: 18px 6px;
+    gap: 6px;
+    border-top: none;
+    border-left: none;
+    border-right: 1px solid var(--line-soft);
+    backdrop-filter: none;
+    background: var(--black-1);
+  }
+  body.app-active .nav-tab { flex: 0 0 auto; padding: 10px 4px; }
+
+  body.app-active .conversations-screen {
+    flex: 0 0 340px;
+    max-width: 340px;
+    margin: 0;
+    border-left: none;
+  }
+  body.app-active .conversation-list { padding-bottom: 10px; }
+
+  body.app-active .chat-screen {
+    flex: 1 1 auto;
+    max-width: none;
+    margin: 0;
+    border-right: none;
+  }
+
+  /* The "back to chats" arrow only makes sense when the list isn't
+     already sitting right there on screen. */
+  body.app-active #back-btn { display: none; }
+
+  /* Highlight whichever conversation is open — same idea as Messenger's
+     selected-row treatment, kept in this app's own accent color. */
+  .conv-item.active {
+    background: var(--accent-1) !important;
+    border-color: var(--accent-1) !important;
+    box-shadow: none !important;
+  }
+  .conv-item.active .conv-name,
+  .conv-item.active .conv-time,
+  .conv-item.active .conv-unread-badge {
+    color: var(--black-0) !important;
+  }
+  .conv-item.active .conv-preview {
+    color: var(--black-0) !important;
+    opacity: 0.75;
+    font-weight: 600;
+  }
+
+  body.app-active .chat-screen:not(.has-open) .chat-empty-state {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    background: var(--black-0);
+    color: var(--gray-1);
+    font-size: 14px;
+    text-align: center;
+    padding: 24px;
+    z-index: 5;
   }
 }
