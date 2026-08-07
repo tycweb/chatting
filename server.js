@@ -5,6 +5,11 @@ const crypto = require("crypto");
 const { Server } = require("socket.io");
 const webpush = require("web-push");
 const { createClient } = require("redis");
+// Requires `npm install compression`. Gzips app.js/style.css/HTML responses —
+// on Render's free tier the network hop is the bottleneck, so shrinking the
+// transfer (the JS bundle alone is ~150KB) speeds up first load more than
+// any client-side change can.
+const compression = require("compression");
 
 const app = express();
 const server = http.createServer(app);
@@ -386,7 +391,13 @@ async function loadPushSubsFromRedis() {
   }
 }
 
+app.use(compression());
 app.use(express.json({ limit: "1mb" }));
+// Note: app.js/style.css aren't filename-hashed per deploy, so we deliberately
+// don't set a long/immutable Cache-Control here — that would let browsers
+// skip fetching a fixed bug for up to a year. express.static's default ETag
+// still lets repeat visits send a cheap conditional GET (304, no body) instead
+// of re-downloading the file, which is the safe version of the same win.
 app.use(express.static(path.join(__dirname, "public")));
 
 // Hit by an external uptime pinger (UptimeRobot, cron-job.org, etc.) every
