@@ -3394,17 +3394,26 @@
       (e) => `<button type="button" class="emoji-picker-item">${e}</button>`
     ).join("");
 
+    function setEmojiPickerOpen(open) {
+      const wasNearBottom = isNearBottom();
+      emojiPicker.classList.toggle("open", open);
+      if (open) {
+        // The picker is an absolutely-positioned overlay, so it doesn't
+        // push the message list's layout on its own — without this it
+        // just sits on top of the newest bubble instead of the list
+        // making room for it. Measure the real rendered height (it's
+        // never display:none, so this is accurate even before the
+        // open transition plays) rather than guessing a fixed number.
+        messageList.style.paddingBottom = emojiPicker.offsetHeight + 24 + "px";
+        if (wasNearBottom) scrollToBottom();
+      } else {
+        messageList.style.paddingBottom = "";
+      }
+    }
+
     emojiBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const opening = emojiPicker.classList.contains("hidden");
-      const wasNearBottom = isNearBottom();
-      emojiPicker.classList.toggle("hidden");
-      // The picker floats above the composer as an absolutely-positioned
-      // overlay, so it doesn't push the message list's layout — without
-      // this it just sits on top of the most recent bubble instead of
-      // the list making room for it.
-      messageList.classList.toggle("emoji-picker-open", opening);
-      if (opening && wasNearBottom) scrollToBottom();
+      setEmojiPickerOpen(!emojiPicker.classList.contains("open"));
     });
 
     emojiPicker.addEventListener("click", (e) => {
@@ -3421,13 +3430,12 @@
 
     document.addEventListener("click", (e) => {
       if (
-        !emojiPicker.classList.contains("hidden") &&
+        emojiPicker.classList.contains("open") &&
         !emojiPicker.contains(e.target) &&
         e.target !== emojiBtn &&
         !emojiBtn.contains(e.target)
       ) {
-        emojiPicker.classList.add("hidden");
-        messageList.classList.remove("emoji-picker-open");
+        setEmojiPickerOpen(false);
       }
     });
   }
